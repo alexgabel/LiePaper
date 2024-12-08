@@ -1,0 +1,61 @@
+{
+    "name": "test_multi",
+    "n_gpu": 1,
+
+    "arch": {
+        "type": "EncoderLieMulTDecoder",
+        "args": {
+            "hidden_sizes": [512, 256, 128, 64],
+            "t_hidden_sizes": [512, 256, 128, 64],
+            "latent_dim": 81,
+            "channels": 4,
+            "non_affine": false,
+            "dropout": false
+        }
+    },
+    "data_loader": {
+        "type": "SuperSyMNISTDataLoader",
+        "args":{
+            "data_dir": "data/",
+            "batch_size": 1024,
+            "shuffle": true,
+            "validation_split": 0.2,
+            "num_workers": 2,
+            "tf_range": [10,10,90,1,0,0,0]
+        }
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args":{
+            "lr": 0.001,
+            "lr_a": 0.01,
+            "weight_decay": 0,
+            "amsgrad": true
+        }
+    },
+    "loss": "loss_multi",
+    "lambda_recon": 1.0,
+    "lambda_z": 0.001,
+    "lambda_lasso": 0.1,
+    "lambda_a": 0.001,
+    "metrics": ["mse_loss", "generator_mse", "drift_mse", "diffusion_mse", "loss_z", "loss_alpha", "loss_recon", "loss_lasso"],
+    "lr_scheduler": {
+        "type": "StepLR",
+        "args": {
+            "step_size": 100,
+            "gamma": 0.1
+        }
+    },
+    "trainer": {
+        "epochs": 100,
+
+        "save_dir": "saved/",
+        "save_period": 10,
+        "verbosity": 2,
+        
+        "monitor": "min val_loss",
+        "early_stop": 100,
+
+        "tensorboard": true
+    }
+}
