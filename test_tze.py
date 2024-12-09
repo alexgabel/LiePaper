@@ -51,11 +51,12 @@ def main(config):
 
     total_loss = 0.0
     total_metrics = torch.zeros(len(metric_fns)).to(device)
-
+    # Get image size (height or width) from the first image in the data_loader:
+    n = data_loader.dataset.images.data[0].shape[1]
     # Store all data and output for estimating the generator after:
-    all_data = torch.empty(0, 1, 28, 28).to(device)
-    all_target = torch.empty(0, 1, 28, 28).to(device)
-    all_output = torch.empty(0, 1, 28, 28).to(device)
+    all_data = torch.empty(0, 1, n, n).to(device)
+    all_target = torch.empty(0, 1, n, n).to(device)
+    all_output = torch.empty(0, 1, n, n).to(device)
 
 
     with torch.no_grad():
@@ -71,8 +72,8 @@ def main(config):
             combined = torch.cat((data, target), 1)
             #####################################
 
-            output, _ = model(combined, epsilon=epsilon, zTest=True)
-
+            output, exptG, t = model(combined, epsilon=epsilon, zTest=True)
+            print("t.shape:", t.shape)
             # Add output to all_output tensor:
             all_output = torch.cat((all_output, output), 0)
 

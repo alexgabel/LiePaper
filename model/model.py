@@ -758,24 +758,19 @@ class EncoderLieMulTDecoder(BaseModel):
         ################################    
         x_t = x_t.view(data_shape)
 
-        return x_t, exptG, t
+        return x_t, exptG, out_t
 
     def normal(self, x):
         # Save size before flattening input:
         data_shape = x.size()
         
-        if not self.conv:
-            # Put x in correct shape:
-            x = x.view(x.size(0), -1)
-            z = self.encoder(x)
-            x = self.decoder(z)
+        # Put x in correct shape:
+        x = x.view(x.size(0), -1)
+        z = self.encoder(x)
+        x = self.decoder(z)
 
-            # Unflattens output so it has same shape as input:
-            x = x.view(data_shape)
-        else:
-            z = self.encoder(x)
-            x = self.decoder(z)
-            x = x.view(data_shape)
+        # Unflattens output so it has same shape as input:
+        x = x.view(data_shape)
 
         return x
     
@@ -1037,6 +1032,112 @@ class EncoderLieMulTDecoder(BaseModel):
         L_shape[0, :length, :width] = 1  # Vertical arm
         L_shape[0, :width, :length] = 1  # Horizontal arm
         return L_shape
+
+
+class EncoderLieMulTVecDecoder(BaseModel):
+    def __init__(self, input_size, hidden_sizes, t_hidden_sizes, latent_dim, non_affine=False,channels=4, dropout=False):
+        super().__init__()
+        self.latent_dim = latent_dim  # Dimensionality of the latent vector
+        self.c = channels
+
+        # Encoder: Produces a latent vector z_0
+        self.encoder = Encoder(input_size, hidden_sizes, channels * latent_dim, layer_norm=False)
+
+        # Trainable transformation matrix G
+        self.a = nn.Parameter(torch.randn(latent_dim, latent_dim), requires_grad=True)
+
+        # Decoder: Reconstructs the output from z_t
+        if dropout:
+            self.decoder = DecoderDropout(channels * latent_dim, hidden_sizes, input_size, dropout=0.5)
+        else:
+            self.decoder = Decoder(channels * latent_dim, hidden_sizes, input_size, layer_norm=False)
+
+        # tNet: Predicts transformation magnitudes t
+        self.t = tNet(2 * input_size, t_hidden_sizes, tnum=1)  # Only one t value
+
+        self.i = 0
+
+    def forward(self, x, epsilon=0, tMax=0, zTest=False):
+        # Normalize G
+        a_norm = torch.norm(self.a, p="fro")
+        a_normalized = self.a / a_norm
+
+        # Split input into x (input) and y (target)
+        x, y = torch.split(x, 1, dim=1)
+        data_shape = x.size()
+        # Flatten x and y for processing
+        x = x.view(x.size(0), -1)
+        y = y.view(y.size(0), -1)
+
+        # Determine t
+        if epsilon == 0 and tMax == 0:
+            out_t = self.t(torch.cat((x, y), dim=1))
+            t = out_t.squeeze(1)
+        elif epsilon != 0 and tMax == 0:
+            t = epsilon * torch.ones(x.size(0)).to(x.device)
+        elif tMax > 0 and epsilon == 0:
+            t = torch.linspace(-tMax, tMax, x.size(0)).to(x.device)
+
+        # Matrix exponential for transformation
+        exponent = torch.einsum("i,mn->imn", t, a_normalized)
+        exptG = torch.matrix_exp(exponent)
+
+        # Encode to z_0 (latent vector) and transform to z_t
+        z = self.encoder(x).view(-1, self.c, self.latent_dim)  # Reshape to (batch, channels, latent_dim)
+        z_t = torch.einsum("ica,iba->icb", z, exptG)  # Apply transformation
+
+        # Decode z_t back to the original input space
+        z_t_flat = z_t.view(-1, self.c * self.latent_dim)
+        x_t = self.decoder(z_t_flat)
+
+        # Optionally visualize transformations during testing
+        if zTest and self.i < 1:
+            self.visualize(z, z_t, t, a_normalized)
+            self.i += 1
+
+        # Reshape output back to the original input size
+        x_t = x_t.view(data_shape)
+        return x_t, exptG, t
+
+    def normal(self, x):
+        # Save size before flattening input:
+        data_shape = x.size()
+        
+        # Put x in correct shape:
+        x = x.view(x.size(0), -1)
+        z = self.encoder(x)
+        x = self.decoder(z)
+
+        # Unflattens output so it has same shape as input:
+        x = x.view(data_shape)
+
+        return x
+
+    def visualize(self, z, z_t, t, a_normalized):
+        """Visualizes the latent space and transformations."""
+        print("Visualizing transformations...")
+
+        # Plot latent vectors z and z_t
+        for idx in range(min(5, z.size(0))):  # Plot first 5 samples
+            plt.figure(figsize=(6, 3))
+            plt.subplot(1, 2, 1)
+            plt.title(f"z_0 (Original) - Sample {idx}")
+            plt.imshow(z[idx, 0].detach().cpu().numpy().reshape(self.latent_dim, self.c), cmap="viridis")
+            plt.colorbar()
+
+            plt.subplot(1, 2, 2)
+            plt.title(f"z_t (Transformed) - Sample {idx}")
+            plt.imshow(z_t[idx, 0].detach().cpu().numpy().reshape(self.latent_dim, self.c), cmap="viridis")
+            plt.colorbar()
+
+            plt.show()
+
+        # Plot generator matrix G
+        plt.figure(figsize=(6, 6))
+        plt.title("Generator Matrix G (Normalized)")
+        plt.imshow(a_normalized.detach().cpu().numpy(), cmap="seismic", vmin=-1, vmax=1)
+        plt.colorbar()
+        plt.show()
 
 
 

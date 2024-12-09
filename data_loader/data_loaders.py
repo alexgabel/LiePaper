@@ -226,7 +226,7 @@ class UnnormalSyMNISTDataLoader(BaseDataLoader):
 
 
 class SuperSyMNIST(Dataset):
-    def __init__(self, data_dir, tf_range=(0, 0, 0, 1, 0, 0, 0), same_digit=True, dataset='mnist', pre_transform=None, post_transform=None, n=36, **kwargs):
+    def __init__(self, data_dir, tf_range=(0, 0, 0, 1, 0, 0, 0), same_digit=True, dataset='mnist', pre_transform=None, post_transform=None, n=28, **kwargs):
         if dataset == 'mnist':    
             self.data = datasets.MNIST(data_dir, download=True, transform=pre_transform, **kwargs)
             self.n = n  # Canvas size (n x n)
@@ -260,11 +260,19 @@ class SuperSyMNIST(Dataset):
             target = self.data[pair_idx][0]
 
             # Apply non-translation transformations to the target
-            r = np.random.uniform(-self.r_max, self.r_max)
+            r_mean = np.random.choice([-1, 0, 1])*self.r_max
+            r = np.random.normal(r_mean, 0.0)
+
+            tx = np.random.choice([-1, 1])*self.tx_max
+            ty = np.random.uniform(-self.ty_max, self.ty_max)
+            
+            
             sh = np.random.uniform(-self.sh_max, self.sh_max)
             bx = np.random.uniform(-self.bx_max, self.bx_max)
             by = np.random.uniform(-self.by_max, self.by_max)
             s = np.random.uniform(2 - self.s_max, self.s_max)
+            # tx, ty = np.random.uniform(-self.tx_max, self.tx_max), np.random.uniform(-self.ty_max, self.ty_max)
+            
 
             target = transforms.functional.affine(target, angle=r, translate=(0, 0), scale=s, shear=sh)
 
@@ -272,8 +280,8 @@ class SuperSyMNIST(Dataset):
                 target = SCT(target.squeeze(), b=[bx, by])
 
             # Create a larger canvas and place image and target at the center
-            image_canvas = torch.zeros((1, self.n, self.n))  # Ensure 3D for `affine`
-            target_canvas = torch.zeros((1, self.n, self.n))  # Ensure 3D for `affine`
+            image_canvas = torch.zeros((1, self.n, self.n))  
+            target_canvas = torch.zeros((1, self.n, self.n))
 
             img_size = image.shape[-1]
             max_offset = self.n - img_size
@@ -286,7 +294,6 @@ class SuperSyMNIST(Dataset):
             target_canvas[0, center_offset:center_offset + img_size, center_offset:center_offset + img_size] = target
 
             # Apply translation transformation to the target canvas
-            tx, ty = np.random.uniform(-self.tx_max, self.tx_max), np.random.uniform(-self.ty_max, self.ty_max)
             target_canvas = transforms.functional.affine(target_canvas, angle=0, translate=(tx, ty), scale=1, shear=0)
 
             # Apply post-transformations

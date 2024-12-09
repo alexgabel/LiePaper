@@ -3,12 +3,13 @@ import os
 import numpy as np
 import torch
 from tqdm import tqdm
+from scipy.linalg import expm
+from scipy.stats import wasserstein_distance
+import matplotlib.pyplot as plt
 import data_loader.data_loaders as module_data
 import model.loss as module_loss
 import model.metric as module_metric
 import model.model as module_arch
-from scipy.linalg import expm
-import matplotlib.pyplot as plt
 from parse_config import ConfigParser
 
 
@@ -29,10 +30,11 @@ def main(config):
         tf_range=config['data_loader']['args']['tf_range']
     )
 
-    data_size = np.prod(data_loader.dataset.images.data[0].shape)
+    # Dynamically determine image dimensions
+    img_size = data_loader.dataset.images.data[0].shape[-1]
 
     # build model architecture
-    model = config.init_obj('arch', module_arch, input_size=data_size)
+    model = config.init_obj('arch', module_arch, input_size=img_size ** 2)
     logger.info(model)
 
     # get function handles of loss and metrics
@@ -54,7 +56,7 @@ def main(config):
     total_loss = 0.0
     total_metrics = torch.zeros(len(metric_fns)).to(device)
 
-    all_data, all_target, all_output = [], [], []
+    all_data, all_target, all_output, all_t = [], [], [], []
 
     with torch.no_grad():
         for data, target in tqdm(data_loader):
@@ -65,6 +67,7 @@ def main(config):
             all_data.append(data)
             all_target.append(target)
             all_output.append(output)
+            all_t.append(t)
 
             # Compute loss
             loss = loss_fn(output, target, data, exptG, combined, config, model)
@@ -74,13 +77,18 @@ def main(config):
     all_data = torch.cat(all_data, dim=0)
     all_target = torch.cat(all_target, dim=0)
     all_output = torch.cat(all_output, dim=0)
+    all_t = torch.cat(all_t, dim=0).cpu().numpy()
+
+    # Provide ground-truth t-distribution here
+    # Replace the following example with the actual ground-truth t-values
+    real_t_distribution = np.random.normal(0, 1, size=all_t.shape[0])
+
+    # Compare distributions
+    wasserstein_score = wasserstein_distance(real_t_distribution, all_t)
+    logger.info(f"Wasserstein Distance between real and predicted t-distributions: {wasserstein_score:.4f}")
 
     # Save results and plots
-    # save_dir = os.path.join(config.save_dir, "test_results")
-    # os.makedirs(save_dir, exist_ok=True)
-
-    # Generate and save analysis plots
-    generate_analysis_plots(all_data, all_target, all_output, model, epsilon)
+    generate_analysis_plots(all_data, all_target, all_output, model, epsilon, all_t, img_size)
 
     # Compute final loss and log
     n_samples = len(data_loader.sampler)
@@ -91,7 +99,7 @@ def main(config):
     logger.info(log)
 
 
-def generate_analysis_plots(data, target, output, model, epsilon):
+def generate_analysis_plots(data, target, output, model, epsilon, t_values, img_size):
     """
     Generate and display analysis plots for the t-test and epsilon-test.
     """
@@ -103,38 +111,31 @@ def generate_analysis_plots(data, target, output, model, epsilon):
     axes = axes.ravel()
 
     # t-Test: Visualize different t-values
-    t_values = np.linspace(-2.5, 2.5, num=5)  # Fewer t-values for clarity
-    for idx, t in enumerate(t_values):
+    t_sample_values = np.linspace(-2.5, 2.5, num=5)
+    for idx, t in enumerate(t_sample_values):
         G = model.G.detach().cpu().numpy()
         exptG = expm(t * G)
 
         data_sample = data[0].view(-1).detach().cpu().numpy()
-        transformed = np.dot(exptG, data_sample).reshape(28, 28)
+        transformed = np.dot(exptG, data_sample).reshape(img_size, img_size)
 
         # Display transformed image
         axes[idx].imshow(transformed, cmap='gray')
         axes[idx].set_title(f"t-Test t={t:.2f}")
         axes[idx].axis('off')
 
-    # Epsilon-Test: Visualize generator approximation
-    if epsilon > 0:
-        A = data.view(-1, 28 * 28).detach().cpu().numpy()
-        B = output.view(-1, 28 * 28).detach().cpu().numpy()
-        reg = 1e-5
-        M = np.linalg.inv(A.T @ A + reg * np.eye(A.shape[1])) @ (A.T @ B)
-        G_est = (M - np.eye(M.shape[0])) / epsilon
-
-        G_diff = np.linalg.norm(G_est - model.G.detach().cpu().numpy(), ord='fro')
-
-        axes[5].imshow(G_est, cmap="seismic", vmin=-1, vmax=1)
-        axes[5].set_title(f"Epsilon-Test | Frobenius Norm: {G_diff:.2f}")
-        axes[5].axis('off')
+    # Histogram of t-values
+    axes[5].hist(t_values, bins=30, alpha=0.7, label='Predicted t-values')
+    axes[5].set_title("Histogram of Predicted t-values")
+    axes[5].set_xlabel("t-value")
+    axes[5].set_ylabel("Frequency")
+    axes[5].legend()
 
     # Original vs. Output: Visualize a data sample and corresponding output
     sample_idx = 0
-    original = data[sample_idx].view(28, 28).detach().cpu().numpy()
-    reconstructed = output[sample_idx].view(28, 28).detach().cpu().numpy()
-    target_sample = target[sample_idx].view(28, 28).detach().cpu().numpy()
+    original = data[sample_idx].view(img_size, img_size).detach().cpu().numpy()
+    reconstructed = output[sample_idx].view(img_size, img_size).detach().cpu().numpy()
+    target_sample = target[sample_idx].view(img_size, img_size).detach().cpu().numpy()
 
     axes[6].imshow(original, cmap='gray')
     axes[6].set_title("Original Sample")
@@ -149,7 +150,7 @@ def generate_analysis_plots(data, target, output, model, epsilon):
     axes[8].axis('off')
 
     # Hide any unused axes
-    for i in range(len(t_values) + 2, len(axes)):
+    for i in range(len(t_sample_values) + 2, len(axes)):
         axes[i].axis('off')
 
     # Display all plots

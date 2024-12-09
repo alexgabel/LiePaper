@@ -99,7 +99,17 @@ class Trainer(BaseTrainer):
             self.optimizer.zero_grad()
 
             t = t.detach().cpu().numpy()
-            self.writer.add_histogram('t', t, epoch)
+            # If t is batch x 3, then split and plot t, t2, t12 seperately:
+            if len(t.shape) > 1 and t.shape[1] == 3:
+                t1 = t[:,0]
+                t2 = t[:,1]
+                t12 = t[:,2]
+                
+                self.writer.add_histogram('t1', t1, epoch)
+                self.writer.add_histogram('t2', t2, epoch)
+                self.writer.add_histogram('t12', t12, epoch)
+            else:
+                self.writer.add_histogram('t', t, epoch)
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
             self.train_metrics.update('loss', loss.item())
             with torch.no_grad():
@@ -163,9 +173,18 @@ class Trainer(BaseTrainer):
                 # Logging t values to tensorboard using histogram:
                 ########################################
                 t_log = t.detach().cpu().numpy()
-                self.writer.add_histogram('t', t_log, epoch)
-                # Accumulate t values in t_history for single epoch:
-                self.t_history[epoch-1, batch_idx*data.shape[0]:(batch_idx+1)*data.shape[0]] = t_log
+                # If t_log is batch x 3, then split and plot t, t2, t12 seperately:
+                if len(t.shape) > 1 and t.shape[1] == 3:
+                    t1 = t_log[:,0]
+                    t2 = t_log[:,1]
+                    t12 = t_log[:,2]
+                    self.writer.add_histogram('t1', t1, epoch)
+                    self.writer.add_histogram('t2', t2, epoch)
+                    self.writer.add_histogram('t12', t12, epoch)
+                else:
+                    self.writer.add_histogram('t', t_log, epoch)
+                    # Accumulate t values in t_history for single epoch:
+                    self.t_history[epoch-1, batch_idx*data.shape[0]:(batch_idx+1)*data.shape[0]] = t_log
                 ########################################
                 self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
                 self.valid_metrics.update('loss', loss.item())

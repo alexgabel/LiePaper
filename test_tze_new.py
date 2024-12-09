@@ -1,4 +1,5 @@
 import argparse
+import os
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -17,7 +18,7 @@ def main(config):
     # Explicitly set epsilon here
     epsilon = 0  # You can adjust this value as needed
 
-    # setup data_loader instances
+    # Setup data_loader instances
     data_loader = getattr(module_data, config['data_loader']['type'])(
         config['data_loader']['args']['data_dir'],
         batch_size=config['data_loader']['args']['batch_size'],
@@ -28,13 +29,15 @@ def main(config):
         tf_range=config['data_loader']['args']['tf_range']
     )
 
+    # Dynamically set image dimensions
+    img_dim = data_loader.dataset.images.data[0].shape[1]
     data_size = np.prod(data_loader.dataset.images.data[0].shape)
 
-    # build model architecture
+    # Build model architecture
     model = config.init_obj('arch', module_arch, input_size=data_size)
     logger.info(model)
 
-    # get function handles of loss and metrics
+    # Get function handles of loss and metrics
     loss_fn = getattr(module_loss, config['loss'])
     metric_fns = [getattr(module_metric, met) for met in config['metrics']]
 
@@ -45,7 +48,7 @@ def main(config):
         model = torch.nn.DataParallel(model)
     model.load_state_dict(state_dict)
 
-    # prepare model for testing
+    # Prepare model for testing
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
     model.eval()
@@ -54,38 +57,112 @@ def main(config):
     total_metrics = torch.zeros(len(metric_fns)).to(device)
 
     all_data, all_target, all_output = [], [], []
+    all_t_values = []  # Store t values for histogram
 
     with torch.no_grad():
         for data, target in tqdm(data_loader):
             data, target = data.to(device), target.to(device)
 
             combined = torch.cat((data, target), 1)
-            output, exptG, t = model(combined, epsilon=epsilon)
-            inputtnet = None
+            output, exptG, t = model(combined, epsilon=epsilon,zTest=True)
             all_data.append(data)
             all_target.append(target)
             all_output.append(output)
 
-            # Compute loss and metrics
+            # Collect t values for histogram
+            all_t_values.append(t.detach().cpu().numpy())
+
+            # Compute loss
             loss = loss_fn(output, target, data, exptG, combined, config, model)
             batch_size = data.shape[0]
             total_loss += loss.item() * batch_size
-            # for i, metric in enumerate(metric_fns):
-            #     total_metrics[i] += metric(output, target, data, 
-            #                                inputtnet, combined,
-            #                                config, model) * batch_size
 
     all_data = torch.cat(all_data, dim=0)
     all_target = torch.cat(all_target, dim=0)
     all_output = torch.cat(all_output, dim=0)
 
-    # Compute final loss and metrics
+    # Concatenate and split t values for histograms
+    all_t_values = np.concatenate(all_t_values)
+    t = all_t_values[:, 0]
+    t2 = all_t_values[:, 1]
+    t12 = all_t_values[:, 2]
+
+    # Save results and plots
+    generate_analysis_plots(all_data, all_target, all_output, model, epsilon, t, t2, t12, img_dim)
+
+    # Compute final loss and log
     n_samples = len(data_loader.sampler)
     log = {'loss': total_loss / n_samples}
     log.update({
         met.__name__: total_metrics[i].item() / n_samples for i, met in enumerate(metric_fns)
     })
     logger.info(log)
+
+
+def generate_analysis_plots(data, target, output, model, epsilon, t, t2, t12, img_dim):
+    """
+    Generate and display analysis plots for the t-test, epsilon-test, and histograms.
+    """
+    # Set up a single figure
+    fig, axes = plt.subplots(3, 3, figsize=(15, 15))
+    fig.suptitle("Analysis Plots", fontsize=16)
+
+    # Flatten axes for easier access
+    axes = axes.ravel()
+
+    # t-Test: Visualize different t-values
+    t_test_values = np.linspace(-2.5, 2.5, num=5)  # Fewer t-values for clarity
+    for idx, t_val in enumerate(t_test_values):
+        G = model.G.detach().cpu().numpy()
+        exptG = expm(t_val * G)
+
+        data_sample = data[0].view(-1).detach().cpu().numpy()
+        transformed = np.dot(exptG, data_sample).reshape(img_dim, img_dim)
+
+        # Display transformed image
+        axes[idx].imshow(transformed, cmap='gray')
+        axes[idx].set_title(f"t-Test t={t_val:.2f}")
+        axes[idx].axis('off')
+
+    # Histograms of t, t2, and t12
+    plt.figure(figsize=(12, 6))
+    bins = 50
+
+    plt.hist(t, bins=bins, color='blue', alpha=0.5, label='t (G)')
+    plt.hist(t2, bins=bins, color='green', alpha=0.5, label='t2 (G_2)')
+    plt.hist(t12, bins=bins, color='red', alpha=0.5, label='t12 ([G, G_2])')
+
+    plt.title("Histograms of t, t2, and t12")
+    plt.xlabel("t Values")
+    plt.ylabel("Frequency")
+    plt.legend(loc='upper right')
+    plt.show()
+
+    # Original vs. Output: Visualize a data sample and corresponding output
+    sample_idx = 0
+    original = data[sample_idx].view(img_dim, img_dim).detach().cpu().numpy()
+    reconstructed = output[sample_idx].view(img_dim, img_dim).detach().cpu().numpy()
+    target_sample = target[sample_idx].view(img_dim, img_dim).detach().cpu().numpy()
+
+    axes[6].imshow(original, cmap='gray')
+    axes[6].set_title("Original Sample")
+    axes[6].axis('off')
+
+    axes[7].imshow(target_sample, cmap='gray')
+    axes[7].set_title("Target Sample")
+    axes[7].axis('off')
+
+    axes[8].imshow(reconstructed, cmap='gray')
+    axes[8].set_title("Reconstructed Output")
+    axes[8].axis('off')
+
+    # Hide any unused axes
+    for i in range(len(t_test_values) + 2, len(axes)):
+        axes[i].axis('off')
+
+    # Display all plots
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == '__main__':
@@ -96,3 +173,4 @@ if __name__ == '__main__':
 
     config = ConfigParser.from_args(args)
     main(config)
+

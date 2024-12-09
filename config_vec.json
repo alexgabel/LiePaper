@@ -1,13 +1,13 @@
 {
-    "name": "rot20_tri_C1_H5_bigA",
+    "name": "vec_unibitri_25_C4_largealpha",
     "n_gpu": 1,
 
     "arch": {
-        "type": "EncoderLieTDecoder",
+        "type": "EncoderLieMulTVecDecoder",
         "args": {
             "hidden_sizes": [512, 256, 128, 64],
             "t_hidden_sizes": [512, 256, 128, 64],
-            "latent_dim": 25,
+            "latent_dim": 3,
             "channels": 1,
             "non_affine": false,
             "dropout": false
@@ -21,7 +21,7 @@
             "shuffle": true,
             "validation_split": 0.2,
             "num_workers": 2,
-            "tf_range": [0,0,20,1,0,0,0]
+            "tf_range": [10,5,90,1,0,0,0]
         }
     },
     "optimizer": {
@@ -33,12 +33,12 @@
             "amsgrad": true
         }
     },
-    "loss": "loss_all",
+    "loss": "loss_vec",
     "lambda_recon": 1.0,
     "lambda_z": 0.001,
     "lambda_lasso": 0.1,
     "lambda_a": 1000.0,
-    "metrics": ["mse_loss", "generator_mse", "drift_mse", "diffusion_mse", "loss_z", "loss_alpha", "loss_recon", "loss_lasso"],
+    "metrics": ["mse_loss", "loss_z", "loss_recon", "loss_lasso"],
     "lr_scheduler": {
         "type": "StepLR",
         "args": {

@@ -37,20 +37,14 @@ def loss_z(output, target, data, exptG, combined, config, model):
     # batch_tG = torch.einsum('i, mn -> imn', model.t(inputtnet).squeeze(), model.G)
     # print(batch_tG.shape)
     # exp_tG = torch.matrix_exp(batch_tG)
-    if not model.conv:
-        loss = mse(model.encoder(target.view(bs, -1)).view(bs,channels,-1), #.mean(dim=2),
-                                                            torch.einsum('ica, iba -> icb', 
-                                                                        model.encoder(data.view(bs, -1)).view(bs,channels,-1), #.mean(dim=2),
-                                                                        exptG
-                                                                        )
-                                                            )
-    else:
-        loss = mse(model.encoder(target).view(bs,channels,-1), #.mean(dim=2),
-                                                            torch.einsum('ica, iba -> icb', 
-                                                                        model.encoder(data).view(bs,channels,-1), #.mean(dim=2),
-                                                                        exptG
-                                                                        )
-                                                            )
+
+    loss = mse(model.encoder(target.view(bs, -1)).view(bs,channels,-1), #.mean(dim=2),
+                torch.einsum('ica, iba -> icb', 
+                            model.encoder(data.view(bs, -1)).view(bs,channels,-1), #.mean(dim=2),
+                            exptG
+                            )
+                )
+
     return loss
 
 def loss_lasso(output, target, data, inputtnet, combined, config, model):
