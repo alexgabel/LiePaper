@@ -1,27 +1,27 @@
 {
-    "name": "rot20_tri_C1_H5_bigA",
+    "name": "emp_total",
     "n_gpu": 1,
 
     "arch": {
         "type": "EncoderLieTDecoder",
         "args": {
-            "hidden_sizes": [512, 256, 128, 64],
-            "t_hidden_sizes": [512, 256, 128, 64],
-            "latent_dim": 25,
+            "hidden_sizes": [],
+            "t_hidden_sizes": [],
+            "latent_dim": 81,
             "channels": 1,
             "non_affine": false,
             "dropout": false
         }
     },
     "data_loader": {
-        "type": "SuperSyMNISTDataLoader",
+        "type": "SyMNISTDataLoader",
         "args":{
             "data_dir": "data/",
             "batch_size": 512,
             "shuffle": true,
             "validation_split": 0.2,
             "num_workers": 2,
-            "tf_range": [0,0,20,1,0,0,0]
+            "tf_range": [0,0,45,1,0,0,0]
         }
     },
     "optimizer": {

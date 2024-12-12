@@ -97,22 +97,21 @@ class SyMNIST(Dataset):
             # Angle is a random float between angle_range[0] and angle_range[1]
             # sign = np.random.choice([-1, 1])
 
-            # Sample r from sum of two normals with mean self.r_max or -self.r_max and std 5.0
-            r = np.random.uniform(-self.r_max, self.r_max)
-            # Multilpy r by sign which is +1 or -1, randomy smpled
-            # r = np.random.choice([-1, 1])*r
-            #np.random.uniform(-self.r_max, self.r_max)#self.angle_range[0], self.angle_range[1])
+            # Apply non-translation transformations to the target
+            r_mean = np.random.choice([-2,-1, 0, 1,2])*self.r_max
+            r = np.random.normal(r_mean, 5.0)
+            #r = np.random.uniform(-self.r_max,self.r_max)
+
+            tx = np.random.uniform(-self.tx_max, self.tx_max)
+            ty = np.random.uniform(-self.ty_max, self.ty_max)
+            
             sh = np.random.uniform(-self.sh_max, self.sh_max)
             bx = np.random.uniform(-self.bx_max, self.bx_max)
             by = np.random.uniform(-self.by_max, self.by_max)
-            # Angle_2 is a random float sampled from a trimodal distribution
-            # with peaks at 0, 45 and -45 degrees and std of 0 degrees:
-            # r = float(np.random.choice([self.r_max, -self.r_max]))
-
-            # Factor is a random float between 0.8 and 1.2
-            s = np.random.uniform(2-self.s_max, self.s_max) #float(np.random.choice([2-self.s_max, self.s_max]))
-
-            tx, ty = np.random.uniform(-self.tx_max, self.tx_max), np.random.uniform(-self.ty_max, self.ty_max) 
+            # s = np.random.choice([2 - self.s_max,1.0, self.s_max])*1.0
+            s = np.random.uniform(2 - self.s_max, self.s_max)
+            # tx, ty = np.random.uniform(-self.tx_max, self.tx_max), np.random.uniform(-self.ty_max, self.ty_max)
+            
 
             # Scale image by factor f, padding with zeros
             target = transforms.functional.affine(image, angle=r, translate=(tx, ty), 
@@ -260,16 +259,17 @@ class SuperSyMNIST(Dataset):
             target = self.data[pair_idx][0]
 
             # Apply non-translation transformations to the target
-            r_mean = np.random.choice([-1, 0, 1])*self.r_max
-            r = np.random.normal(r_mean, 0.0)
+            r_mean = np.random.choice([-2,-1, 0, 1,2])*self.r_max
+            r = np.random.normal(r_mean, 5.0)
+            #r = np.random.uniform(-self.r_max,self.r_max)
 
-            tx = np.random.choice([-1, 1])*self.tx_max
+            tx = np.random.uniform(-self.tx_max, self.tx_max)
             ty = np.random.uniform(-self.ty_max, self.ty_max)
-            
             
             sh = np.random.uniform(-self.sh_max, self.sh_max)
             bx = np.random.uniform(-self.bx_max, self.bx_max)
             by = np.random.uniform(-self.by_max, self.by_max)
+            # s = np.random.choice([2 - self.s_max,1.0, self.s_max])*1.0
             s = np.random.uniform(2 - self.s_max, self.s_max)
             # tx, ty = np.random.uniform(-self.tx_max, self.tx_max), np.random.uniform(-self.ty_max, self.ty_max)
             

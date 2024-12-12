@@ -92,6 +92,7 @@ if __name__ == '__main__':
         CustomArgs(['--lra', '--learning_rate_a'], type=float, target='optimizer;args;lr_a'),
         CustomArgs(['--bs', '--batch_size'], type=int, target='data_loader;args;batch_size'),
         CustomArgs(['--n', '--name'], type=str, target='name'),
+        CustomArgs(['--L', '--latent_dim'], type=int, target='arch;args;latent_dim'),
         CustomArgs(['--c', '--channels'], type=int, target='arch;args;channels'),
         CustomArgs(['--l_r', '--lambda_recon'], type=float, target='lambda_recon'),
         CustomArgs(['--l_z', '--lambda_z'], type=float, target='lambda_z'),

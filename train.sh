@@ -1,22 +1,18 @@
 #!/bin/bash
 
-# For various learning rates, run the python train script
-for c in 1
+for c in 4 1
 do
-    for lr in 0.001
+    for L in 81 25
     do
-        for lra in 0.01
+        for l_l in 0.1
         do
-            for l_l in 0.1
+            for l_z in 0.001
             do
-                for l_z in 0.001
+                for l_r in 1.0
                 do
-                    for l_r in 1.0
+                    for l_a in 0.001 1.0 1000.0 0.00001
                     do
-                        for l_a in 0.001 1.0 1000.0 0.00001
-                        do
-                            python train.py -c config.json --lr $lr --lra $lra --l_l $l_l --l_z $l_z --l_r $l_r --l_a $l_a --c $c --n "BIG-81-$lr-$lra-L$l_l-Z$l_z-R$l_r-A$l_a-_MNIST-C$c"
-                        done
+                        python train.py -c config.json --L $L --l_l $l_l --l_z $l_z --l_r $l_r --l_a $l_a --c $c --n "Scale-nonEXP-81-lat$L-L$l_l-Z$l_z-R$l_r-A$l_a-_MNIST-C$c"
                     done
                 done
             done

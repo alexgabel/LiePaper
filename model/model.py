@@ -4,8 +4,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
+from scipy.interpolate import RectBivariateSpline
+from scipy.ndimage import gaussian_filter
 import matplotlib.pyplot as plt
 from base import BaseModel
+from scipy.linalg import expm
 
 class tNet(BaseModel):
     '''Simple MLP that takes input and target images and outputs rotation angle'''
@@ -368,9 +371,38 @@ class EncoderLieTDecoder(BaseModel):
 
         return x
     
-    def generate_basis(self, d_squared, non_affine=False):
-        L0 = lambda d,z: np.sum([2*np.pi*p/d**2 * np.sin(2*np.pi*p/d *z) 
-                                 for p in np.arange(-d/2+1,d/2)], axis=0)
+    def matrix_plot(self,Lx):
+        """
+        Plots the matrix Lx and its exponential side by side with colorbars.
+        
+        Args:
+            Lx (numpy.ndarray or torch.Tensor): The matrix to be visualized.
+        """
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+        # Plot Lx
+        im1 = axes[0].imshow(Lx, cmap="viridis", aspect="auto")
+        axes[0].set_title("Lx (Derivative Matrix)")
+        axes[0].set_xlabel("Columns")
+        axes[0].set_ylabel("Rows")
+        fig.colorbar(im1, ax=axes[0], orientation="vertical", fraction=0.046, pad=0.04)
+
+        # Plot expm(Lx)
+        im2 = axes[1].imshow(expm(Lx), cmap="viridis", aspect="auto")
+        axes[1].set_title("expm(Lx) (Exponential of Lx)")
+        axes[1].set_xlabel("Columns")
+        axes[1].set_ylabel("Rows")
+        fig.colorbar(im2, ax=axes[1], orientation="vertical", fraction=0.046, pad=0.04)
+
+        # Add some space between plots
+        plt.tight_layout()
+
+        # Show the plots
+        plt.show()
+
+    def generate_basis(self, d_squared, non_affine=False, basis_type='sw'):
+        # L0 = lambda d,z: np.sum([2*np.pi*p/d**2 * np.sin(2*np.pi*p/d *z) 
+        #                          for p in np.arange(-d/2+1,d/2)], axis=0)
         # Latent dimension:
         d = int(np.sqrt(d_squared))
 
@@ -381,8 +413,27 @@ class EncoderLieTDecoder(BaseModel):
         x,y = y,x
         y = -y
 
-        dx = (x[:,np.newaxis] - x) * (y[:,np.newaxis] == y)
-        dy = (y[:,np.newaxis] - y) * (x[:,np.newaxis] == x)
+        dx = (x[:, np.newaxis] - x) * (y[:, np.newaxis] == y)
+        dy = (y[:, np.newaxis] - y) * (x[:, np.newaxis] == x)
+
+        if basis_type == "sw":
+            # Shannon-Whittaker interpolation
+            L0 = lambda d, z: np.sum(
+                [2 * np.pi * p / d**2 * np.sin(2 * np.pi * p / d * z) for p in np.arange(-d / 2 + 1, d / 2)], 
+                axis=0
+            )
+        elif basis_type == "exp":
+            L0 = lambda d, z: np.sum(
+                [np.exp(-np.abs(p / d)) * 2 * np.pi * p / d**2 * np.sin(2 * np.pi * p / d * z) for p in np.arange(-d / 2 + 1, d / 2)], 
+                axis=0
+            )
+        elif basis_type == "gauss":
+            L0 = lambda d, z: np.sum(
+                [np.exp(-p**2 / (2 * (d / 4)**2)) * 2 * np.pi * p / d**2 * np.sin(2 * np.pi * p / d * z) for p in np.arange(-d / 2 + 1, d / 2)], 
+                axis=0
+            )
+        else:
+            raise ValueError(f"Invalid basis_type: {basis_type}. Choose 'shannon', 'spline', or 'gaussian'.")
 
         Lx = L0(2*d, dx)
         Ly = L0(2*d, dy)
