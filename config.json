@@ -1,12 +1,22 @@
 {
-    "name": "emp_total",
+    "name": "RotFinal_BIGA_O1",
     "n_gpu": 1,
 
     "arch": {
         "type": "EncoderLieTDecoder",
         "args": {
-            "hidden_sizes": [],
-            "t_hidden_sizes": [],
+            "hidden_sizes": [
+                512,
+                256,
+                128,
+                64
+            ],
+            "t_hidden_sizes": [
+                512,
+                256,
+                128,
+                64
+            ],
             "latent_dim": 81,
             "channels": 1,
             "non_affine": false,
@@ -17,7 +27,7 @@
         "type": "SyMNISTDataLoader",
         "args":{
             "data_dir": "data/",
-            "batch_size": 512,
+            "batch_size": 1024,
             "shuffle": true,
             "validation_split": 0.2,
             "num_workers": 2,
@@ -37,8 +47,17 @@
     "lambda_recon": 1.0,
     "lambda_z": 0.001,
     "lambda_lasso": 0.1,
-    "lambda_a": 1000.0,
-    "metrics": ["mse_loss", "generator_mse", "drift_mse", "diffusion_mse", "loss_z", "loss_alpha", "loss_recon", "loss_lasso"],
+    "lambda_a": 100000.0,
+    "metrics": [
+        "mse_loss",
+        "generator_mse",
+        "drift_mse",
+        "diffusion_mse",
+        "loss_z",
+        "loss_alpha",
+        "loss_recon",
+        "loss_lasso"
+    ],
     "lr_scheduler": {
         "type": "StepLR",
         "args": {

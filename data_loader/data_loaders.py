@@ -72,11 +72,8 @@ class SyMNIST(Dataset):
         if dataset == 'mnist':    
             self.data = datasets.MNIST(data_dir, download=True, transform=pre_transform, **kwargs)
             self.n = self.data.data.shape[1]
-        elif dataset == 'cifar10_g':
-            self.data = datasets.CIFAR10(data_dir, download=True, transform=pre_transform, **kwargs)
-            # Convert the CIFAR10 images to greyscale
-            self.data.data = self.data.data.mean(axis=3)/255.0
-            self.n = self.data.data.shape[1]
+        else:
+            raise ValueError("Only 'mnist' dataset is currently supported.")
 
             # Reduce the size of the dataset for testing purposes:
             # self.data = Subset(self.data, range(128))
@@ -98,18 +95,19 @@ class SyMNIST(Dataset):
             # sign = np.random.choice([-1, 1])
 
             # Apply non-translation transformations to the target
-            r_mean = np.random.choice([-2,-1, 0, 1,2])*self.r_max
-            r = np.random.normal(r_mean, 5.0)
+            # r_mean = np.random.choice([-2,-1, 0, 1,2])*self.r_max
+            r = np.random.normal(0, self.r_max)
             #r = np.random.uniform(-self.r_max,self.r_max)
 
             tx = np.random.uniform(-self.tx_max, self.tx_max)
             ty = np.random.uniform(-self.ty_max, self.ty_max)
             
             sh = np.random.uniform(-self.sh_max, self.sh_max)
-            bx = np.random.uniform(-self.bx_max, self.bx_max)
-            by = np.random.uniform(-self.by_max, self.by_max)
+            bx = np.random.normal(0, self.bx_max)
+            by = np.random.normal(0, self.by_max)
             # s = np.random.choice([2 - self.s_max,1.0, self.s_max])*1.0
-            s = np.random.uniform(2 - self.s_max, self.s_max)
+            # s = np.random.uniform(2 - self.s_max, self.s_max)
+            s= np.random.normal(1.0, self.s_max-1.0)
             # tx, ty = np.random.uniform(-self.tx_max, self.tx_max), np.random.uniform(-self.ty_max, self.ty_max)
             
 
@@ -259,9 +257,9 @@ class SuperSyMNIST(Dataset):
             target = self.data[pair_idx][0]
 
             # Apply non-translation transformations to the target
-            r_mean = np.random.choice([-2,-1, 0, 1,2])*self.r_max
-            r = np.random.normal(r_mean, 5.0)
-            #r = np.random.uniform(-self.r_max,self.r_max)
+            # r_mean = np.random.choice([-2,-1, 0, 1,2])*self.r_max
+            # r = np.random.normal(r_mean, 5.0)
+            r = np.random.uniform(-self.r_max,self.r_max)
 
             tx = np.random.uniform(-self.tx_max, self.tx_max)
             ty = np.random.uniform(-self.ty_max, self.ty_max)
@@ -310,6 +308,24 @@ class SuperSyMNIST(Dataset):
     def __getitem__(self, idx):
         return self.images[idx], self.targets[idx]
 
+    def visualize_samples(self, num_samples=5):
+        """
+        Visualize a few sample pairs (image and target) with purple-yellow colormap.
+        """
+        fig, axes = plt.subplots(num_samples, 2, figsize=(8, num_samples * 2))
+        for i in range(num_samples):
+            image, target = self.images[i, 0].numpy(), self.targets[i, 0].numpy()
+            axes[i, 0].imshow(image, cmap='viridis')  # Purple-yellow colormap
+            axes[i, 0].axis('off')
+            axes[i, 0].set_title("Original Image")
+
+            axes[i, 1].imshow(target, cmap='viridis')  # Purple-yellow colormap
+            axes[i, 1].axis('off')
+            axes[i, 1].set_title("Transformed Target")
+
+        plt.tight_layout()
+        plt.show()
+
 class SuperSyMNISTDataLoader(BaseDataLoader):
     """
     SyMNIST data loading demo using BaseDataLoader
@@ -330,6 +346,5 @@ class SuperSyMNISTDataLoader(BaseDataLoader):
                                     train=training, 
                                     pre_transform=pre_transform, 
                                     post_transform=post_transform)
-
 
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers)

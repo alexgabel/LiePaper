@@ -90,112 +90,6 @@ class DecoderDropout(BaseModel):
     def forward(self, x):
         return self.layers(x)
 
-class EncoderExpDecoder(BaseModel):
-    def __init__(self, input_size, hidden_sizes, latent_dim):
-        super().__init__()
-        self.encoder = Encoder(input_size, hidden_sizes, latent_dim)
-        self.transform = nn.Parameter(torch.randn(latent_dim, latent_dim))
-        self.decoder = Decoder(latent_dim, hidden_sizes, input_size)
-        
-
-    def forward(self, x):
-        # Split the two chanels into x and y
-        x, y = torch.split(x,  1, dim=1)
-        print(x.shape)
-        print(y.shape)
-        # Save size before flattening input:
-        data_shape = x.size()
-
-        # Flattens input:
-        x = x.view(x.size(0), -1)
-        z = self.encoder(x)
-        z = torch.matmul(z, torch.matrix_exp(self.transform))
-        x = self.decoder(z)
-
-        # Unflattens output so it has same shape as input:
-        x = x.view(data_shape)
-        return x
-
-    def normal(self, x):
-        # Save size before flattening input:
-        data_shape = x.size()
-
-        # Flattens input:
-        x = x.view(x.size(0), -1)
-        z = self.encoder(x)
-        x = self.decoder(z)
-
-        # Unflattens output so it has same shape as input:
-        x = x.view(data_shape)
-        return x
-
-
-class EncoderLieDecoder(BaseModel):
-    def __init__(self, input_size, hidden_sizes, latent_dim):
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.encoder = Encoder(input_size, hidden_sizes, latent_dim)
-
-        # Initialize 6 trainable parameters for basis coefficients:
-        self.a = nn.Parameter(torch.randn(6), requires_grad=True)
-        self.D = nn.Parameter(self.generate_basis(), requires_grad=False)
-        # Put D on device:
-        self.G = torch.einsum('i, imn -> mn', self.a, self.D)
-        self.G = nn.Parameter(self.G, requires_grad=True)
-
-        self.decoder = Decoder(latent_dim, hidden_sizes, input_size)
-
-    def forward(self, x):
-        # Save size before flattening input:
-        data_shape = x.size()
-
-        # Flattens input:
-        x = x.view(x.size(0), -1)
-        z = self.encoder(x)
-        z = torch.matmul(z, torch.matrix_exp(self.G))
-        x = self.decoder(z)
-
-        # Unflattens output so it has same shape as input:
-        x = x.view(data_shape)
-        return x
-
-    def normal(self, x):
-        # Save size before flattening input:
-        data_shape = x.size()
-
-        # Flattens input:
-        x = x.view(x.size(0), -1)
-        z = self.encoder(x)
-        x = self.decoder(z)
-
-        # Unflattens output so it has same shape as input:
-        x = x.view(data_shape)
-        return x
-    
-    def generate_basis(self):
-        L0 = lambda d,z: np.sum([2*np.pi*p/d**2 * np.sin(2*np.pi*p/d *z) 
-                                 for p in np.arange(-d/2+1,d/2)], axis=0)
-        # Latent dimension:
-        d = int(np.sqrt(self.latent_dim))
-
-        coords = np.mgrid[:d,:d] - d/2
-        x,y = coords.reshape((2,-1))
-
-        dx = (x[:,np.newaxis] - x) * (y[:,np.newaxis] == y)
-        dy = (y[:,np.newaxis] - y) * (x[:,np.newaxis] == x)
-
-        Lx = L0(2*d, dx)
-        Ly = L0(2*d, dy)
-    
-        xLx = np.diag(x) @ Lx
-        yLx = np.diag(y) @ Lx
-        xLy = np.diag(x) @ Ly
-        yLy = np.diag(y) @ Ly
-
-        D = np.stack([Lx, xLx, yLx, Ly, xLy, yLy], axis=0)
-        D = torch.from_numpy(D).float()
-        return D
-
 
 class EncoderLieTDecoder(BaseModel):
     
@@ -281,71 +175,22 @@ class EncoderLieTDecoder(BaseModel):
         # field form of the generator G) on the gaussian blob. 
 
         if zTest and self.i < 1:
-            # Plot the generator G as a vector field. The coefficients come from
-            # a_norm and correspond to [constant,x,y] in the x-direction and
-            # [constant,x,y] in the y-direction, respectively.
+            ground_truth_a = torch.tensor([0, 0, -1,0,0,0,0, 1, 0,0,0,0], device=self.a.device, dtype=torch.float32)
+        
+            # Calculate G loss
+            g_loss = self.calculate_g_loss(ground_truth_a)
 
-            x_plot = np.linspace(-5,5,10)
-            y_plot = np.linspace(-5,5,10)
-            X,Y = np.meshgrid(x_plot,y_plot)
+            # Print G Loss components
+            print("G Loss Components:")
+            print(f"  Total MSE: {g_loss['g_mse']:.4f} (Neg: {g_loss['neg_g_mse']:.4f})")
+            print(f"  Drift MSE: {g_loss['g_drift_mse']:.4f} (Neg: {g_loss['neg_g_drift_mse']:.4f})")
+            print(f"  Diffusion MSE: {g_loss['g_diff_mse']:.4f} (Neg: {g_loss['neg_g_diff_mse']:.4f})")
+            if self.a.size(0) == 12:  # Non-affine terms
+                print(f"  Non-Affine MSE: {g_loss['g_nonaffine_mse']:.4f} (Neg: {g_loss['neg_g_nonaffine_mse']:.4f})")
 
-            # Swap coordinates and make y -> -y to match image coordinates:
-            X,Y = Y,X
-            Y = -Y
-
-            # a_test = torch.tensor([1,0,-1,0,1,0]).float().to("cuda:0")
-            # a_test_norm = torch.norm(a_test, p=2)
-            # a_test_normed = a_test / a_test_norm
-
-            # a_normed = a_test_normed
-            
-            # Get a0, a1, a2, a3, a4, a5 from a_normed and put on the cpu and print:
-            a0 = a_normed[0].detach().cpu().numpy()
-            a1 = a_normed[1].detach().cpu().numpy()
-            a2 = a_normed[2].detach().cpu().numpy()
-            a3 = a_normed[3].detach().cpu().numpy()
-            a4 = a_normed[4].detach().cpu().numpy()
-            a5 = a_normed[5].detach().cpu().numpy()
-            # print("2a = ", a0, a1, a2,
-            #        a3, a4, a5)
-            
-            print("Drift terms:\n"
-                 "a0 = ", a0, "\n"
-                 "a3 = ", a3, "\n"
-                 "\nDiffusion matrix:\n"
-                 "[", a1, a2, "]\n"
-                 "[", a4, a5, "]")
-
-            # Learned drift terms (a0, a3)
-            # Ground truth for drift
-            drift_ground_truth = np.array([0, 0])
-
-            # Learned diffusion matrix (a1, a2, a4, a5)
-            # Rotation Ground truth diffusion matrix [[0, -1], [1, 0]]
-            diffusion_ground_truth = np.array([[0, -1], [1, 0]])
-
-            # Drift MSE calculation
-            learned_drift = np.array([a0, a3])
-            drift_mse = np.mean((learned_drift - drift_ground_truth) ** 2)
-
-            # Learned diffusion matrix
-            learned_diffusion = np.array([[a1, a2], [a4, a5]])
-            diffusion_mse = np.mean((learned_diffusion - diffusion_ground_truth) ** 2)
-            eigenvalues, _ = np.linalg.eig(learned_diffusion)
-            # Print the results
-            print(f"Drift MSE: {drift_mse}")
-            print(f"Diffusion Matrix MSE: {diffusion_mse}")
-            print(f"Eigenvalues of the diffusion matrix: {eigenvalues}")
-            # Plot the vector field:
-            # x components are a0*1 + a1*x + a2*y, y components are a3*1 + a4*x + a5*y:
-            U = a0 + a1*X + a2*Y
-            V = a3 + a4*X + a5*Y
-            plt.quiver(X, Y, U, V, color='r')
-            plt.grid()
-            plt.show()
-
-            self.plot_patches(z,z_t,t)
-
+            # Visualize the generator field and eigenvectors
+            self.visualize(z, z_t, t, a_normed, ground_truth_a, plot_eigen=False)
+            self.plot_patches(z, z_t, t, ground_truth_a)
             self.i += 1
         ################################    
         x_t = x_t.view(data_shape)
@@ -464,12 +309,141 @@ class EncoderLieTDecoder(BaseModel):
 
         return D
     
-    def taylor_loss(self, combined_data, order=2):
+    def calculate_g_loss(self, ground_truth_a):
+        """
+        Calculate MSE losses for the learned `G` compared to the ground truth.
+
+        Handles both affine (`a` length 6) and non-affine (`a` length 12) cases.
+        """
+        # Normalize ground truth coefficients
+        ground_truth_a = torch.tensor(ground_truth_a, device=self.a.device, dtype=torch.float32)
+        gt_norm = torch.norm(ground_truth_a, p=2)
+        ground_truth_a = ground_truth_a / gt_norm
+        a_normed = self.a / torch.norm(self.a, p=2)
+        # Total MSE
+        g_mse = torch.mean((a_normed - ground_truth_a) ** 2).item()
+        neg_g_mse = torch.mean((a_normed + ground_truth_a) ** 2).item()
+
+        if a_normed.size(0) == 6:  # Affine case
+            # Drift components
+            learned_drift = a_normed[[0, 3]]
+            gt_drift = ground_truth_a[[0, 3]]
+
+            # Diffusion components
+            learned_diffusion = a_normed[[1, 2, 4, 5]]
+            gt_diffusion = ground_truth_a[[1, 2, 4, 5]]
+
+            # Non-affine components do not exist
+            g_nonaffine_mse = neg_g_nonaffine_mse = 0.0
+
+        elif a_normed.size(0) == 12:  # Non-affine case
+            # Drift components
+            learned_drift = a_normed[[0, 6]]
+            gt_drift = ground_truth_a[[0, 6]]
+
+            # Diffusion components
+            learned_diffusion = a_normed[[1, 2, 7, 8]]
+            gt_diffusion = ground_truth_a[[1, 2, 7, 8]]
+
+            # Non-affine components
+            learned_nonaffine = a_normed[[3, 4, 5, 9, 10, 11]]
+            gt_nonaffine = ground_truth_a[[3, 4, 5, 9, 10, 11]]
+            g_nonaffine_mse = torch.mean((learned_nonaffine - gt_nonaffine) ** 2).item()
+            neg_g_nonaffine_mse = torch.mean((learned_nonaffine + gt_nonaffine) ** 2).item()
+
+        else:
+            raise ValueError("Unexpected size for `a` vector. Supported lengths are 6 (affine) or 12 (non-affine).")
+
+        # Drift MSE
+        g_drift_mse = torch.mean((learned_drift - gt_drift) ** 2).item()
+        neg_g_drift_mse = torch.mean((learned_drift + gt_drift) ** 2).item()
+
+        # Diffusion MSE
+        g_diff_mse = torch.mean((learned_diffusion - gt_diffusion) ** 2).item()
+        neg_g_diff_mse = torch.mean((learned_diffusion + gt_diffusion) ** 2).item()
+
+        return {
+            'g_mse': g_mse,
+            'neg_g_mse': neg_g_mse,
+            'g_drift_mse': g_drift_mse,
+            'neg_g_drift_mse': neg_g_drift_mse,
+            'g_diff_mse': g_diff_mse,
+            'neg_g_diff_mse': neg_g_diff_mse,
+            'g_nonaffine_mse': g_nonaffine_mse,
+            'neg_g_nonaffine_mse': neg_g_nonaffine_mse
+        }
+
+    def visualize(self, z, z_t, t, a_normed, ground_truth_a, plot_eigen=False):
+        # Generator visualization
+        grid_size = 10
+        # Get d from square root of latent dimension
+        d = int(np.sqrt(self.latent_dim))
+        x_vals = np.linspace(-d, d, grid_size)
+        y_vals = np.linspace(-d, d, grid_size)
+        X, Y = np.meshgrid(x_vals, y_vals)
+        X, Y = Y, X
+        Y = -Y
+
+        if self.D.shape[0] == 6:  # Affine case
+            a = a_normed[:6].detach().cpu().numpy()
+            U = a[0] + a[1] * X + a[2] * Y
+            V = a[3] + a[4] * X + a[5] * Y
+            drift = np.array([a[0], a[3]])
+            diffusion = np.array([[a[1], a[2]], [a[4], a[5]]])
+        elif self.D.shape[0] == 12:  # Non-affine case
+            a = a_normed[:12].detach().cpu().numpy()
+            U = a[0] + a[1] * X + a[2] * Y + a[3] * X**2 + a[4] * X * Y + a[5] * Y**2
+            V = a[6] + a[7] * X + a[8] * Y + a[9] * X**2 + a[10] * X * Y + a[11] * Y**2
+            drift = np.array([a[0], a[6]])
+            diffusion = np.array([[a[1], a[2]], [a[7], a[8]]])
+
+        # Eigenvalue and eigenvector calculation
+        eigenvalues, eigenvectors = np.linalg.eig(diffusion)
+
+        plt.figure(figsize=(8, 8))
+        plt.quiver(X, Y, U, V, color='r', label='Generator Field')
+
+        if plot_eigen:
+            for idx, eigenvalue in enumerate(eigenvalues):
+                if np.iscomplex(eigenvalue):  # Complex eigenvalue
+                    plt.scatter(*drift, color='blue', s=100, label='Complex Eigenvalue')
+                else:  # Real eigenvalue
+                    eigenvector = eigenvectors[:, idx].real
+                    plt.quiver(
+                        drift[0], drift[1],
+                        eigenvalue * eigenvector[0], eigenvalue * eigenvector[1],
+                        angles='xy', scale_units='xy', scale=1,
+                        color='blue', label=f"Eigenvector {idx+1}"
+                    )
+
+        # Calculate G loss
+        g_loss = self.calculate_g_loss(ground_truth_a)
+
+        # Determine argmin and select corresponding metrics
+        argmin_g = 0 if g_loss['g_mse'] < g_loss['neg_g_mse'] else 1
+        min_g_mse = [g_loss['g_mse'], g_loss['neg_g_mse']][argmin_g]
+        min_drift_mse = [g_loss['g_drift_mse'], g_loss['neg_g_drift_mse']][argmin_g]
+        min_diffusion_mse = [g_loss['g_diff_mse'], g_loss['neg_g_diff_mse']][argmin_g]
+
+        # Add MSE information to the title
+        title_info = (
+            f"MSE: {min_g_mse:.4f}, Drift: {min_drift_mse:.4f}, Diff.: {min_diffusion_mse:.4f}"
+        )
+        plt.title(f"{title_info}")
+
+        # plt.title("Generator Vector Field with Eigenvectors")
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.grid(True)
+        # plt.legend(loc='upper left', fontsize=8)
+        plt.show()
+
+    def taylor_loss(self, combined_data, order=1):
         # Normalize a vector by dividing by its norm:
         a_norm = torch.norm(self.a, p=2)
         a_normed = self.a / a_norm
 
-        self.G = torch.einsum('i, imn -> mn', a_normed, self.D_big)
+        self.G_big = torch.einsum('i, imn -> mn', a_normed, self.D_big)
 
         x, y = torch.split(combined_data, 1, dim=1)
 
@@ -488,7 +462,7 @@ class EncoderLieTDecoder(BaseModel):
         # t does not require gradient:
         t_no_grad = t.detach()
 
-        tG = torch.einsum('i, mn -> imn', t_no_grad, self.G)
+        tG = torch.einsum('i, mn -> imn', t_no_grad, self.G_big)
 
         if order == 1:    
             # First order Taylor approximation:
@@ -503,12 +477,12 @@ class EncoderLieTDecoder(BaseModel):
 
         return x_t, y
     
-
-    def plot_patches(self, z, z_t, t):
+    def plot_patches(self, z, z_t, t, ground_truth_a=None):
         latent_dim_sqrt = int(np.sqrt(self.latent_dim))
         print(z.shape, z_t.shape, t.shape)
-        # Initialize the figure with 4 rows and 11 columns
-        fig, axs = plt.subplots(6, 11, figsize=(20, 8))  # Adjusted for 11 columns
+
+        # Initialize the figure with 6 rows and 11 columns
+        fig, axs = plt.subplots(6, 11, figsize=(20, 12))  # Adjusted height for better paper fit
 
         # Loop over the first 11 values to display z and z_t patches
         for j in range(11):
@@ -524,86 +498,60 @@ class EncoderLieTDecoder(BaseModel):
             axs[1, j].axis('off')
 
         # Generate quasi-equally spaced t values between -1 and 1, including 0
-        t_values = torch.linspace(-0.5, 0.5, 11, device='cuda:0')  # 11 values including -1 and 1
+        t_values = torch.linspace(-1, 1, 11, device='cuda:0')
 
-        # Create a Gaussian blob in the center for the sample patch
-        z_temp1 = self.create_gaussian_line_segment(stddev=0.2) #self.create_gaussian_blob(stddev=0.5)
+        # Create sample patches
+        z_temp1 = self.create_gaussian_line_segment(stddev=0.2)
         z_temp2 = self.create_gaussian_blob(stddev=0.5)
 
-        a_test = torch.tensor([0,0,-1,0,1,0]).float().to("cuda:0")
-        a_test_norm = torch.norm(a_test, p=2)
-        a_test_normed = a_test / a_test_norm
+        # Define matrices G_test and G_model
+        a_test = ground_truth_a.float().to("cuda:0")#torch.tensor([0,0,0,1, 0, -1,0,0,0, 0, 2, 0]).float().to("cuda:0")
+        G_test = torch.einsum('i, imn -> mn', a_test / torch.norm(a_test, p=2), self.D)
+        G_model = torch.einsum('i, imn -> mn', self.a / torch.norm(self.a, p=2), self.D)
 
-        G_test = torch.einsum('i, imn -> mn', a_test_normed, self.D)
-
-        a_model = self.a
-        a_model_norm = torch.norm(a_model, p=2)
-        a_model_normed = a_model / a_model_norm
-
-        G_model = torch.einsum('i, imn -> mn', a_model_normed, self.D)
-
-        # Loop to plot the transformed Gaussian blob for each t value
-        for j in range(11):  # Loop over all 11 t values
+        # Loop to plot transformations for line and blob
+        for j in range(11):
             t_sample = t_values[j]
-            
 
-            # Apply matrix exponentiation for each t value and visualize the effect
+            # Apply matrix exponentiation and transformations for line
             exptG = torch.matrix_exp(torch.einsum('i,mn -> imn', t_sample.view(1), G_test))
             exptG_model = torch.matrix_exp(torch.einsum('i,mn -> imn', t_sample.view(1), G_model))
-            
             z_t_temp = torch.einsum('ia, iba -> ib', z_temp1, exptG)
             z_t_temp_model = torch.einsum('ia, iba -> ib', z_temp1, exptG_model)
 
-            z_t_temp_plot = z_t_temp.view(latent_dim_sqrt, latent_dim_sqrt)
-            z_t_temp_plot_model = z_t_temp_model.view(latent_dim_sqrt, latent_dim_sqrt)
-
-            # Plot the blob transformed by model in row 3
-            axs[2, j].imshow(z_t_temp_plot_model.detach().cpu().numpy(), cmap='viridis')
+            # Plot in rows 3 and 4
+            axs[2, j].imshow(z_t_temp_model.view(latent_dim_sqrt, latent_dim_sqrt).detach().cpu().numpy(), cmap='viridis')
             axs[2, j].axis('off')
-
-            # Plot the transformed blob in row 4
-            axs[3, j].imshow(z_t_temp_plot.detach().cpu().numpy(), cmap='viridis')
+            axs[3, j].imshow(z_t_temp.view(latent_dim_sqrt, latent_dim_sqrt).detach().cpu().numpy(), cmap='viridis')
             axs[3, j].axis('off')
 
-            # Optionally label the t values for clarity above the original Gaussian blob
-            axs[2, j].set_title(f't = {t_sample.item():.2f}', fontsize=8)
-
-        # Add a horizontal line between Rows 2 and 3 for clarity
-        for j in range(11):
-            axs[2, j].axhline(y=-0.5, color='black', linewidth=1)
-
-                # Loop to plot the transformed Gaussian blob for each t value
-        for j in range(11):  # Loop over all 11 t values
-            t_sample = t_values[j]
-
-            # Apply matrix exponentiation for each t value and visualize the effect
-            exptG = torch.matrix_exp(torch.einsum('i,mn -> imn', 10*t_sample.view(1), G_test))
-            exptG_model = torch.matrix_exp(torch.einsum('i,mn -> imn', t_sample.view(1), G_model))
-
+            # Apply matrix exponentiation and transformations for blob
             z_t_temp = torch.einsum('ia, iba -> ib', z_temp2, exptG)
             z_t_temp_model = torch.einsum('ia, iba -> ib', z_temp2, exptG_model)
 
-            z_t_temp_plot = z_t_temp.view(latent_dim_sqrt, latent_dim_sqrt)
-            z_t_temp_plot_model = z_t_temp_model.view(latent_dim_sqrt, latent_dim_sqrt)
-
-            # Plot the original Gaussian blob in row 3
-            axs[4, j].imshow(z_t_temp_plot_model.detach().cpu().numpy(), cmap='viridis')
+            # Plot in rows 5 and 6
+            axs[4, j].imshow(z_t_temp_model.view(latent_dim_sqrt, latent_dim_sqrt).detach().cpu().numpy(), cmap='viridis')
             axs[4, j].axis('off')
-
-            # Plot the transformed blob in row 4
-            axs[5, j].imshow(z_t_temp_plot.detach().cpu().numpy(), cmap='viridis')
+            axs[5, j].imshow(z_t_temp.view(latent_dim_sqrt, latent_dim_sqrt).detach().cpu().numpy(), cmap='viridis')
             axs[5, j].axis('off')
 
-            # Optionally label the t values for clarity above the original Gaussian blob
-            axs[4, j].set_title(f't = {t_sample.item():.2f}', fontsize=8)
+        # Add vertical labels centered on rows and closer to the grid
+        fig.text(0.02, 0.88, r'$\mathbf{z}_0$', va='center', ha='center', rotation='vertical', fontsize=12)
+        fig.text(0.02, 0.72, r'$\mathbf{z}_t$', va='center', ha='center', rotation='vertical', fontsize=12)
 
-        # Add a horizontal line between Rows 2 and 3 for clarity
-        for j in range(11):
-            axs[4, j].axhline(y=-0.5, color='black', linewidth=1)
+        fig.text(0.02, 0.56, 'learnt TF\n(line)', va='center', ha='center', rotation='vertical', fontsize=12)
+        fig.text(0.02, 0.40, 'GT TF\n(line)', va='center', ha='center', rotation='vertical', fontsize=12)
 
+        fig.text(0.02, 0.24, 'learnt TF\n(blob)', va='center', ha='center', rotation='vertical', fontsize=12)
+        fig.text(0.02, 0.08, 'GT TF\n(blob)', va='center', ha='center', rotation='vertical', fontsize=12)
 
-        plt.tight_layout()
+        # Adjust layout and display
+        plt.tight_layout(rect=[0.05, 0, 1, 1])  # Adjust rect to bring labels closer
         plt.show()
+
+
+
+
 
 
     def create_gaussian_blob(self, stddev=0.5):
@@ -879,9 +827,9 @@ class EncoderLieMulTDecoder(BaseModel):
         a2_normed = self.a2 / a2_norm
         
 
-        self.G = torch.einsum('i, imn -> mn', a_normed, self.D_big)
+        self.G1 = torch.einsum('i, imn -> mn', a_normed, self.D_big)
         self.G2 = torch.einsum('i, imn -> mn', a2_normed, self.D_big)
-        commutator = torch.matmul(self.G, self.G2) - torch.matmul(self.G2, self.G)
+        commutator = torch.matmul(self.G1, self.G2) - torch.matmul(self.G2, self.G1)
 
         x, y = torch.split(combined_data, 1, dim=1)
 
@@ -906,7 +854,7 @@ class EncoderLieMulTDecoder(BaseModel):
         # First-order Taylor approximation
         taylor_approx = (
             torch.eye(self.D_big.shape[1]).to(x.device) + 
-            torch.einsum('i, mn -> imn', t_no_grad, self.G) + 
+            torch.einsum('i, mn -> imn', t_no_grad, self.G1) + 
             torch.einsum('i, mn -> imn', t2_no_grad, self.G2) + 
             torch.einsum('i, mn -> imn', t12_no_grad, commutator)
         )
@@ -1165,282 +1113,240 @@ class EncoderLieMulTVecDecoder(BaseModel):
         return x
 
     def visualize(self, z, z_t, t, a_normalized):
-        """Visualizes the latent space and transformations."""
-        print("Visualizing transformations...")
+        """
+        Visualize the original latent vectors (z) and transformed latent vectors (z_t) in 2D.
+        """
+        z = z.view(-1, self.latent_dim).detach().cpu().numpy()  # Flatten and move to CPU
+        z_t = z_t.view(-1, self.latent_dim).detach().cpu().numpy()  # Flatten and move to CPU
 
-        # Plot latent vectors z and z_t
-        for idx in range(min(5, z.size(0))):  # Plot first 5 samples
-            plt.figure(figsize=(6, 3))
-            plt.subplot(1, 2, 1)
-            plt.title(f"z_0 (Original) - Sample {idx}")
-            plt.imshow(z[idx, 0].detach().cpu().numpy().reshape(self.latent_dim, self.c), cmap="viridis")
-            plt.colorbar()
+        # Create the plot
+        plt.figure(figsize=(8, 6))
 
-            plt.subplot(1, 2, 2)
-            plt.title(f"z_t (Transformed) - Sample {idx}")
-            plt.imshow(z_t[idx, 0].detach().cpu().numpy().reshape(self.latent_dim, self.c), cmap="viridis")
-            plt.colorbar()
+        # Plot original latent vectors
+        plt.scatter(z[:, 0], z[:, 1], c="blue", alpha=0.6, label="Original Latents (z)")
 
-            plt.show()
+        # Plot transformed latent vectors
+        plt.scatter(z_t[:, 0], z_t[:, 1], c="orange", alpha=0.6, label="Transformed Latents (z_t)")
 
-        # Plot generator matrix G
-        plt.figure(figsize=(6, 6))
-        plt.title("Generator Matrix G (Normalized)")
-        plt.imshow(a_normalized.detach().cpu().numpy(), cmap="seismic", vmin=-1, vmax=1)
-        plt.colorbar()
+        # Add labels and legend
+        plt.xlabel("Latent Dimension 1")
+        plt.ylabel("Latent Dimension 2")
+        plt.title("Latent Space Visualization")
+        plt.legend()
+        plt.grid(True)
+
+        # Show the plot
+        plt.tight_layout()
         plt.show()
 
 
+# class EncoderMultiLieDecoder(BaseModel):
+#     def __init__(self, input_size, hidden_sizes, t_hidden_sizes, latent_dim):
+#         super().__init__()
+#         self.latent_dim = latent_dim
+#         self.encoder = Encoder(input_size, hidden_sizes, latent_dim)
 
-class PowerNet(BaseModel):
-    """Neural network that conssits of layers which are a power series 
-    of the symmetry matrix S. I.e. f=sum theta_i S^i where S is the
-    symmetry matrix and theta_i are the learnable parameters. One can also add
-    a bias term to the power series."""
-    def __init__(self, input_size, hidden_sizes, output_size, bias=True):
-        super().__init__()
-        self.input_size = input_size
-        self.output_size = output_size
-        self.hidden_sizes = hidden_sizes
-        self.bias = bias
-        self.layers = self.create_layers()
-
-    
-    def forward(self, x):
-        return self.layers(x)
-    
-    def generate_basis(self, d_squared):
-        L0 = lambda d,z: np.sum([2*np.pi*p/d**2 * np.sin(2*np.pi*p/d *z) 
-                                    for p in np.arange(-d/2+1,d/2)], axis=0)
-        # Latent dimension:
-        d = int(np.sqrt(d_squared))
-
-        coords = np.mgrid[:d,:d] - d/2
-        x,y = coords.reshape((2,-1))
-
-        dx = (x[:,np.newaxis] - x) * (y[:,np.newaxis] == y)
-        dy = (y[:,np.newaxis] - y) * (x[:,np.newaxis] == x)
-
-        Lx = L0(2*d, dx)
-        Ly = L0(2*d, dy)
-
-        xLx = np.diag(x) @ Lx
-        yLx = np.diag(y) @ Lx
-        xLy = np.diag(x) @ Ly
-        yLy = np.diag(y) @ Ly
-
-        D = np.stack([Lx, xLx, yLx, Ly, xLy, yLy], axis=0)
-        D = torch.from_numpy(D).float()
-        return D
+#         # Initialize 6 trainable parameters for basis coefficients:
+#         self.a = nn.Parameter(torch.randn(6), requires_grad=True)
+#         # self.a2 = nn.Parameter(torch.randn(6), requires_grad=True)
 
 
-class EncoderMultiLieDecoder(BaseModel):
-    def __init__(self, input_size, hidden_sizes, t_hidden_sizes, latent_dim):
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.encoder = Encoder(input_size, hidden_sizes, latent_dim)
+#         self.D = self.generate_basis(d_squared=self.latent_dim).clone().detach().to("cuda:0")
+#         self.D_big = self.generate_basis(d_squared=input_size).clone().detach().to("cuda:0")
 
-        # Initialize 6 trainable parameters for basis coefficients:
-        self.a = nn.Parameter(torch.randn(6), requires_grad=True)
-        # self.a2 = nn.Parameter(torch.randn(6), requires_grad=True)
+#         # self.D2 = self.generate_basis(d_squared=self.latent_dim).clone().detach().to("cuda:0")
+#         # self.D_big2 = self.generate_basis(d_squared=input_size).clone().detach().to("cuda:0")
 
+#         self.decoder = Decoder(latent_dim, hidden_sizes, input_size)
+#         self.t = tNet(2*input_size, t_hidden_sizes)
 
-        self.D = self.generate_basis(d_squared=self.latent_dim).clone().detach().to("cuda:0")
-        self.D_big = self.generate_basis(d_squared=input_size).clone().detach().to("cuda:0")
+#         self.i = 0
 
-        # self.D2 = self.generate_basis(d_squared=self.latent_dim).clone().detach().to("cuda:0")
-        # self.D_big2 = self.generate_basis(d_squared=input_size).clone().detach().to("cuda:0")
+#     def forward(self, x, epsilon=0, tMax=0, zTest=False):
+#         # Normalize a vector by dividing by its norm:
+#         a_norm = torch.norm(self.a, p=2)
+#         a_normed = self.a / a_norm
+#         # a2_norm = torch.norm(self.a2, p=2)
+#         # a2_normed = self.a2 / a2_norm
 
-        self.decoder = Decoder(latent_dim, hidden_sizes, input_size)
-        self.t = tNet(2*input_size, t_hidden_sizes)
+#         # a_tanh = self.tanh(self.a) # Squash to [-1,1]
+#         self.G = torch.einsum('i, imn -> mn', a_normed, self.D)
+#         # self.G2 = torch.einsum('i, imn -> mn', a2_normed, self.D2)
 
-        self.i = 0
+#         x, y = torch.split(x, 1, dim=1)
 
-    def forward(self, x, epsilon=0, tMax=0, zTest=False):
-        # Normalize a vector by dividing by its norm:
-        a_norm = torch.norm(self.a, p=2)
-        a_normed = self.a / a_norm
-        # a2_norm = torch.norm(self.a2, p=2)
-        # a2_normed = self.a2 / a2_norm
+#         # Save size before flattening input:
+#         data_shape = x.size()
 
-        # a_tanh = self.tanh(self.a) # Squash to [-1,1]
-        self.G = torch.einsum('i, imn -> mn', a_normed, self.D)
-        # self.G2 = torch.einsum('i, imn -> mn', a2_normed, self.D2)
-
-        x, y = torch.split(x, 1, dim=1)
-
-        # Save size before flattening input:
-        data_shape = x.size()
-
-        # Flatten x and y:
-        x = x.view(x.size(0), -1)
-        y = y.view(y.size(0), -1)   
+#         # Flatten x and y:
+#         x = x.view(x.size(0), -1)
+#         y = y.view(y.size(0), -1)   
         
-        # For zero epsilon, use the tNet, else set t to epsilon:
-        if epsilon == 0 and tMax == 0:
-            # Get t from concatenating x and y along the feature dimension
-            # and passing through tNet:
-            t = self.t(torch.cat((x,y), dim=1))
-            # Split t into two parts, one for each output neuron and squeeze seperately:
-            # t, t2 = torch.split(t, 1, dim=1)
-            t = t.squeeze()
-            # t2 = t2.squeeze()
+#         # For zero epsilon, use the tNet, else set t to epsilon:
+#         if epsilon == 0 and tMax == 0:
+#             # Get t from concatenating x and y along the feature dimension
+#             # and passing through tNet:
+#             t = self.t(torch.cat((x,y), dim=1))
+#             # Split t into two parts, one for each output neuron and squeeze seperately:
+#             # t, t2 = torch.split(t, 1, dim=1)
+#             t = t.squeeze()
+#             # t2 = t2.squeeze()
 
-        elif epsilon != 0 and tMax == 0 and self.i < 1:
-            t = epsilon * torch.ones(x.size(0)).to("cuda:0")
-        elif tMax > 0 and epsilon == 0 and self.i < 1:
-            # tMax sets the maximum value of t in the interval [-tMax, tMax]
-            # in which the number of steps agrees with the batch size:
-            t = torch.linspace(-tMax, tMax, x.size(0)).to("cuda:0")
+#         elif epsilon != 0 and tMax == 0 and self.i < 1:
+#             t = epsilon * torch.ones(x.size(0)).to("cuda:0")
+#         elif tMax > 0 and epsilon == 0 and self.i < 1:
+#             # tMax sets the maximum value of t in the interval [-tMax, tMax]
+#             # in which the number of steps agrees with the batch size:
+#             t = torch.linspace(-tMax, tMax, x.size(0)).to("cuda:0")
         
-        # Flattens input:
-        z = self.encoder(x)
-        exponent = torch.einsum('i, mn -> imn', t, self.G)
-        # exponent2 = torch.einsum('i, mn -> imn', t2, self.G2)
+#         # Flattens input:
+#         z = self.encoder(x)
+#         exponent = torch.einsum('i, mn -> imn', t, self.G)
+#         # exponent2 = torch.einsum('i, mn -> imn', t2, self.G2)
 
-        exptG = torch.matrix_exp(exponent)
-        # exptG2 = torch.matrix_exp(exponent2)
+#         exptG = torch.matrix_exp(exponent)
+#         # exptG2 = torch.matrix_exp(exponent2)
 
-        z_t = torch.einsum('ia, iba -> ib', z, exptG)
-        # z_t2 = torch.einsum('ia, iba -> ib', z_t, exptG2)
+#         z_t = torch.einsum('ia, iba -> ib', z, exptG)
+#         # z_t2 = torch.einsum('ia, iba -> ib', z_t, exptG2)
 
-        x_t = self.decoder(z_t)
+#         x_t = self.decoder(z_t)
         
-        ### PLOTTING FOR Z-TESTING ###
-        # The following code is the z-test. It plots the latent vector z 
-        # and the transformed latent vector z_t as latent_dim by latent_dim 
-        # images. It also plots the flow of the generator G by plotting its
-        # action on a two-dimensional gaussian blob. Also, arrows are plotted
-        # that correspond to the flow of the generator G (by using the vector
-        # field form of the generator G) on the gaussian blob. 
+#         ### PLOTTING FOR Z-TESTING ###
+#         # The following code is the z-test. It plots the latent vector z 
+#         # and the transformed latent vector z_t as latent_dim by latent_dim 
+#         # images. It also plots the flow of the generator G by plotting its
+#         # action on a two-dimensional gaussian blob. Also, arrows are plotted
+#         # that correspond to the flow of the generator G (by using the vector
+#         # field form of the generator G) on the gaussian blob. 
 
-        if zTest and self.i < 1:
-            # Plot the generator G as a vector field. The coefficients come from
-            # a_norm and correspond to [constant,x,y] in the x-direction and
-            # [constant,x,y] in the y-direction, respectively.
+#         if zTest and self.i < 1:
+#             # Plot the generator G as a vector field. The coefficients come from
+#             # a_norm and correspond to [constant,x,y] in the x-direction and
+#             # [constant,x,y] in the y-direction, respectively.
 
-            x_plot = np.linspace(-5,5,10)
-            y_plot = np.linspace(-5,5,10)
-            X,Y = np.meshgrid(x_plot,y_plot)
+#             x_plot = np.linspace(-5,5,10)
+#             y_plot = np.linspace(-5,5,10)
+#             X,Y = np.meshgrid(x_plot,y_plot)
             
-            # Get a0, a1, a2, a3, a4, a5 from a_normed and put on the cpu and print:
-            a0 = a_normed[0].detach().cpu().numpy()
-            a1 = a_normed[1].detach().cpu().numpy()
-            a2 = a_normed[2].detach().cpu().numpy()
-            a3 = a_normed[3].detach().cpu().numpy()
-            a4 = a_normed[4].detach().cpu().numpy()
-            a5 = a_normed[5].detach().cpu().numpy()
-            print("2a = ", a0, a1, a2, a3, a4, a5)
+#             # Get a0, a1, a2, a3, a4, a5 from a_normed and put on the cpu and print:
+#             a0 = a_normed[0].detach().cpu().numpy()
+#             a1 = a_normed[1].detach().cpu().numpy()
+#             a2 = a_normed[2].detach().cpu().numpy()
+#             a3 = a_normed[3].detach().cpu().numpy()
+#             a4 = a_normed[4].detach().cpu().numpy()
+#             a5 = a_normed[5].detach().cpu().numpy()
+#             print("2a = ", a0, a1, a2, a3, a4, a5)
 
-            # Plot the vector field:
-            # x components are a0*1 + a1*x + a2*y, y components are a3*1 + a4*x + a5*y:
-            U = a0 + a1*X + a2*Y
-            V = a3 + a4*X + a5*Y
-            plt.quiver(X, Y, U, V, color='r')
-            plt.grid()
-            plt.show()
-            # Plot z and z_t as images:
-            for j in range(10):
-                print('t:', t[j])
-                z_plot = z[j].view(-1, int(np.sqrt(self.latent_dim)), int(np.sqrt(self.latent_dim)))
-                z_t_plot = z_t[j].view(-1, int(np.sqrt(self.latent_dim)), int(np.sqrt(self.latent_dim)))
-                fig, ax = plt.subplots(2,2)
-                ax[0].imshow(z_plot.detach().cpu().numpy()[0])
-                ax[1].imshow(z_t_plot.detach().cpu().numpy()[0])
-                # MAke a matrix with zeros and a single 1 in the middle:
-                z_temp = torch.zeros((1, self.latent_dim)).to("cuda:0")
-                z_temp[0, int(self.latent_dim/2)] = 1
-                z_temp_plot = z_temp.view(-1, int(np.sqrt(self.latent_dim)), int(np.sqrt(self.latent_dim)))
-                # Now plot the effect of G on the gaussian blob:
-                z_t_temp = torch.einsum('ia, iba -> ib', z_temp, exptG)
-                z_t_temp_plot = z_t_temp.view(-1, int(np.sqrt(self.latent_dim)), int(np.sqrt(self.latent_dim)))
-                ax[2].imshow(z_t_temp_plot.detach().cpu().numpy()[0])
-                ax[3].imshow(z_temp_plot.detach().cpu().numpy()[0])
-                plt.show()
+#             # Plot the vector field:
+#             # x components are a0*1 + a1*x + a2*y, y components are a3*1 + a4*x + a5*y:
+#             U = a0 + a1*X + a2*Y
+#             V = a3 + a4*X + a5*Y
+#             plt.quiver(X, Y, U, V, color='r')
+#             plt.grid()
+#             plt.show()
+#             # Plot z and z_t as images:
+#             for j in range(10):
+#                 print('t:', t[j])
+#                 z_plot = z[j].view(-1, int(np.sqrt(self.latent_dim)), int(np.sqrt(self.latent_dim)))
+#                 z_t_plot = z_t[j].view(-1, int(np.sqrt(self.latent_dim)), int(np.sqrt(self.latent_dim)))
+#                 fig, ax = plt.subplots(2,2)
+#                 ax[0].imshow(z_plot.detach().cpu().numpy()[0])
+#                 ax[1].imshow(z_t_plot.detach().cpu().numpy()[0])
+#                 # MAke a matrix with zeros and a single 1 in the middle:
+#                 z_temp = torch.zeros((1, self.latent_dim)).to("cuda:0")
+#                 z_temp[0, int(self.latent_dim/2)] = 1
+#                 z_temp_plot = z_temp.view(-1, int(np.sqrt(self.latent_dim)), int(np.sqrt(self.latent_dim)))
+#                 # Now plot the effect of G on the gaussian blob:
+#                 z_t_temp = torch.einsum('ia, iba -> ib', z_temp, exptG)
+#                 z_t_temp_plot = z_t_temp.view(-1, int(np.sqrt(self.latent_dim)), int(np.sqrt(self.latent_dim)))
+#                 ax[2].imshow(z_t_temp_plot.detach().cpu().numpy()[0])
+#                 ax[3].imshow(z_temp_plot.detach().cpu().numpy()[0])
+#                 plt.show()
                 
 
 
-            self.i += 1
-        ################################    
+#             self.i += 1
+#         ################################    
 
-        x_t = x_t.view(data_shape)
+#         x_t = x_t.view(data_shape)
 
-        return x_t, t
+#         return x_t, t
 
-    def normal(self, x):
-        # Save size before flattening input:
-        data_shape = x.size()
+#     def normal(self, x):
+#         # Save size before flattening input:
+#         data_shape = x.size()
 
-        # Flattens input:
-        x = x.view(x.size(0), -1)
-        z = self.encoder(x)
-        x = self.decoder(z)
+#         # Flattens input:
+#         x = x.view(x.size(0), -1)
+#         z = self.encoder(x)
+#         x = self.decoder(z)
 
-        # Unflattens output so it has same shape as input:
-        x = x.view(data_shape)
-        return x
+#         # Unflattens output so it has same shape as input:
+#         x = x.view(data_shape)
+#         return x
     
-    def generate_basis(self, d_squared):
-        L0 = lambda d,z: np.sum([2*np.pi*p/d**2 * np.sin(2*np.pi*p/d *z) 
-                                 for p in np.arange(-d/2+1,d/2)], axis=0)
-        # Latent dimension:
-        d = int(np.sqrt(d_squared))
+#     def generate_basis(self, d_squared):
+#         L0 = lambda d,z: np.sum([2*np.pi*p/d**2 * np.sin(2*np.pi*p/d *z) 
+#                                  for p in np.arange(-d/2+1,d/2)], axis=0)
+#         # Latent dimension:
+#         d = int(np.sqrt(d_squared))
 
-        coords = np.mgrid[:d,:d] - d/2
-        x,y = coords.reshape((2,-1))
+#         coords = np.mgrid[:d,:d] - d/2
+#         x,y = coords.reshape((2,-1))
 
-        dx = (x[:,np.newaxis] - x) * (y[:,np.newaxis] == y)
-        dy = (y[:,np.newaxis] - y) * (x[:,np.newaxis] == x)
+#         dx = (x[:,np.newaxis] - x) * (y[:,np.newaxis] == y)
+#         dy = (y[:,np.newaxis] - y) * (x[:,np.newaxis] == x)
 
-        Lx = L0(2*d, dx)
-        Ly = L0(2*d, dy)
+#         Lx = L0(2*d, dx)
+#         Ly = L0(2*d, dy)
     
-        xLx = np.diag(x) @ Lx
-        yLx = np.diag(y) @ Lx
-        xLy = np.diag(x) @ Ly
-        yLy = np.diag(y) @ Ly
+#         xLx = np.diag(x) @ Lx
+#         yLx = np.diag(y) @ Lx
+#         xLy = np.diag(x) @ Ly
+#         yLy = np.diag(y) @ Ly
 
-        D = np.stack([Lx, xLx, yLx, Ly, xLy, yLy], axis=0)
-        D = torch.from_numpy(D).float()
-        return D
+#         D = np.stack([Lx, xLx, yLx, Ly, xLy, yLy], axis=0)
+#         D = torch.from_numpy(D).float()
+#         return D
     
-    def taylor_loss(self, combined_data, order=1):
-        # Normalize a vector by dividing by its norm:
-        a_norm = torch.norm(self.a, p=2)
-        a_normed = self.a / a_norm
+#     def taylor_loss(self, combined_data, order=1):
+#         # Normalize a vector by dividing by its norm:
+#         a_norm = torch.norm(self.a, p=2)
+#         a_normed = self.a / a_norm
 
-        # a_tanh = self.tanh(self.a) # Squash to [-1,1]
+#         # a_tanh = self.tanh(self.a) # Squash to [-1,1]
 
-        self.G = torch.einsum('i, imn -> mn', a_normed, self.D_big)
+#         self.G_big = torch.einsum('i, imn -> mn', a_normed, self.D_big)
 
-        x, y = torch.split(combined_data, 1, dim=1)
+#         x, y = torch.split(combined_data, 1, dim=1)
 
-        # Save size before flattening input:
-        data_shape = x.size()
+#         # Save size before flattening input:
+#         data_shape = x.size()
 
-        # Flatten x and y:
-        x = x.view(x.size(0), -1)
-        y = y.view(y.size(0), -1)   
+#         # Flatten x and y:
+#         x = x.view(x.size(0), -1)
+#         y = y.view(y.size(0), -1)   
 
-        # Get t from concatenating x and y along the feature dimension
-        # and passing through tNet:
-        t = self.t(torch.cat((x,y), dim=1))
-        # Flatten t:
-        t = t.squeeze()
-        # t does not require gradient:
-        t_no_grad = t.detach()
+#         # Get t from concatenating x and y along the feature dimension
+#         # and passing through tNet:
+#         t = self.t(torch.cat((x,y), dim=1))
+#         # Flatten t:
+#         t = t.squeeze()
+#         # t does not require gradient:
+#         t_no_grad = t.detach()
 
-        tG = torch.einsum('i, mn -> imn', t_no_grad, self.G)
+#         tG = torch.einsum('i, mn -> imn', t_no_grad, self.G_big)
 
-        if order == 1:    
-            # First order Taylor approximation:
-            exptG_order = torch.eye(self.D_big.shape[1]).to("cuda:0") + tG
-        elif order == 2:
-            # Second order Taylor approximation:
-            exptG_order = torch.eye(self.D_big.shape[1]).to("cuda:0") + tG + 0.5*torch.einsum('imn, ink -> imk', tG, tG)
-        else:
-            raise ValueError("Order must be 1 or 2.")
+#         if order == 1:    
+#             # First order Taylor approximation:
+#             exptG_order = torch.eye(self.D_big.shape[1]).to("cuda:0") + tG
+#         elif order == 2:
+#             # Second order Taylor approximation:
+#             exptG_order = torch.eye(self.D_big.shape[1]).to("cuda:0") + tG + 0.5*torch.einsum('imn, ink -> imk', tG, tG)
+#         else:
+#             raise ValueError("Order must be 1 or 2.")
 
-        x_t = torch.einsum('ia, iba -> ib', x, exptG_order)
+#         x_t = torch.einsum('ia, iba -> ib', x, exptG_order)
 
-        return x_t, y
+#         return x_t, y

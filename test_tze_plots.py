@@ -11,15 +11,28 @@ import model.loss as module_loss
 import model.metric as module_metric
 import model.model as module_arch
 from parse_config import ConfigParser
+import random
+
+
+def set_random_seed(seed=42):
+    """
+    Set random seed for reproducibility.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def main(config):
+    # Set a random seed
+    set_random_seed(42)
     logger = config.get_logger('test')
 
-    # Explicitly set epsilon here
-    epsilon = 0  # You can adjust this value as needed
+    epsilon = 0  # Adjustable value for epsilon
 
-    # setup data_loader instances
+    # Setup data_loader instances
     data_loader = getattr(module_data, config['data_loader']['type'])(
         config['data_loader']['args']['data_dir'],
         batch_size=config['data_loader']['args']['batch_size'],
@@ -30,28 +43,24 @@ def main(config):
         tf_range=config['data_loader']['args']['tf_range']
     )
 
-    # Dynamically determine image dimensions
-    img_size = data_loader.dataset.images.data[0].shape[-1]
+    img_size = data_loader.dataset.images.data[0].shape[-1]  # Dynamically determine image dimensions
 
-    # build model architecture
+    # Build model architecture
     model = config.init_obj('arch', module_arch, input_size=img_size ** 2)
     logger.info(model)
 
-    # get function handles of loss and metrics
     loss_fn = getattr(module_loss, config['loss'])
     metric_fns = [getattr(module_metric, met) for met in config['metrics']]
 
-    logger.info('Loading checkpoint: {} ...'.format(config.resume))
+    logger.info(f'Loading checkpoint: {config.resume} ...')
     checkpoint = torch.load(config.resume)
-    state_dict = checkpoint['state_dict']
+    model.load_state_dict(checkpoint['state_dict'])
     if config['n_gpu'] > 1:
         model = torch.nn.DataParallel(model)
-    model.load_state_dict(state_dict)
 
-    # prepare model for testing
+    # Prepare model for testing
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-    model.eval()
+    model = model.to(device).eval()
 
     total_loss = 0.0
     total_metrics = torch.zeros(len(metric_fns)).to(device)
@@ -64,6 +73,7 @@ def main(config):
 
             combined = torch.cat((data, target), 1)
             output, exptG, t = model(combined, epsilon=epsilon)
+
             all_data.append(data)
             all_target.append(target)
             all_output.append(output)
@@ -79,83 +89,201 @@ def main(config):
     all_output = torch.cat(all_output, dim=0)
     all_t = torch.cat(all_t, dim=0).cpu().numpy()
 
-    # Provide ground-truth t-distribution here
-    # Replace the following example with the actual ground-truth t-values
-    real_t_distribution = np.random.normal(0, 1, size=all_t.shape[0])
+    # Ground-truth t-distribution in radians: Mixture of Gaussians
+    # means_deg = [-90, -45, 0, 45, 90]
+    # means_rad = [np.deg2rad(mean) for mean in means_deg]
+    # std_dev_rad = np.deg2rad(5)
+    real_t_distribution = np.random.normal(1, 1.2, size=all_t.shape[0])
+    
+    # np.concatenate([
+    #     np.random.normal(mean, std_dev_rad, size=all_t.shape[0] // len(means_rad))
+    #     for mean in means_rad
+    # ])
+
+    # Align distributions (mean-shift and scale-normalize)
+    aligned_t_values = (all_t - np.mean(all_t)) / np.std(all_t)
+    aligned_real_t_distribution = (real_t_distribution - np.mean(real_t_distribution)) / np.std(real_t_distribution)
 
     # Compare distributions
-    wasserstein_score = wasserstein_distance(real_t_distribution, all_t)
-    logger.info(f"Wasserstein Distance between real and predicted t-distributions: {wasserstein_score:.4f}")
+    wasserstein_score = wasserstein_distance(aligned_real_t_distribution, aligned_t_values)
+    logger.info(f"Wasserstein Distance between ground truth and predicted: {wasserstein_score:.5f}")
 
-    # Save results and plots
-    generate_analysis_plots(all_data, all_target, all_output, model, epsilon, all_t, img_size)
-
-    # Compute final loss and log
-    n_samples = len(data_loader.sampler)
-    log = {'loss': total_loss / n_samples}
-    log.update({
-        met.__name__: total_metrics[i].item() / n_samples for i, met in enumerate(metric_fns)
-    })
-    logger.info(log)
+    # Generate and save analysis plots
+    plot_sample_pair_and_histogram(all_data, all_target, all_output, model, all_t, aligned_t_values)
+    generate_analysis_plots(all_data, all_target, all_output, model, all_t, aligned_t_values, aligned_real_t_distribution, img_size, wasserstein_score)
+    generate_rows_of_transformations(all_data, model, all_t, img_size)
 
 
-def generate_analysis_plots(data, target, output, model, epsilon, t_values, img_size):
+def plot_sample_pair_and_histogram(data, target, output, model, all_t, aligned_t_values):
     """
-    Generate and display analysis plots for the t-test and epsilon-test.
+    Plot a pair of input images (original and target), the output, reconstruction,
+    and a histogram.
     """
-    # Set up a single figure
-    fig, axes = plt.subplots(3, 3, figsize=(15, 15))
-    fig.suptitle("Analysis Plots", fontsize=16)
+    sample_idx = 0  # Select the first sample for illustration
+    img_size = data[sample_idx].shape[-1]
 
-    # Flatten axes for easier access
-    axes = axes.ravel()
+    # Process the input image through the model for reconstruction
+    with torch.no_grad():
+        encoded = model.encoder(data[sample_idx].view(-1).unsqueeze(0).to(model.a.device))
+        decoded = model.decoder(encoded).view(img_size, img_size).detach().cpu().numpy()
 
-    # t-Test: Visualize different t-values
-    t_sample_values = np.linspace(-2.5, 2.5, num=5)
-    for idx, t in enumerate(t_sample_values):
-        G = model.G.detach().cpu().numpy()
-        exptG = expm(t * G)
-
-        data_sample = data[0].view(-1).detach().cpu().numpy()
-        transformed = np.dot(exptG, data_sample).reshape(img_size, img_size)
-
-        # Display transformed image
-        axes[idx].imshow(transformed, cmap='gray')
-        axes[idx].set_title(f"t-Test t={t:.2f}")
-        axes[idx].axis('off')
-
-    # Histogram of t-values
-    axes[5].hist(t_values, bins=30, alpha=0.7, label='Predicted t-values')
-    axes[5].set_title("Histogram of Predicted t-values")
-    axes[5].set_xlabel("t-value")
-    axes[5].set_ylabel("Frequency")
-    axes[5].legend()
-
-    # Original vs. Output: Visualize a data sample and corresponding output
-    sample_idx = 0
+    # Extract original, target, output, and reconstruction
     original = data[sample_idx].view(img_size, img_size).detach().cpu().numpy()
-    reconstructed = output[sample_idx].view(img_size, img_size).detach().cpu().numpy()
-    target_sample = target[sample_idx].view(img_size, img_size).detach().cpu().numpy()
+    target_img = target[sample_idx].view(img_size, img_size).detach().cpu().numpy()
+    output_img = output[sample_idx].view(img_size, img_size).detach().cpu().numpy()
 
-    axes[6].imshow(original, cmap='gray')
-    axes[6].set_title("Original Sample")
-    axes[6].axis('off')
+    # Create figure
+    fig, axes = plt.subplots(1, 5, figsize=(24, 4))
 
-    axes[7].imshow(target_sample, cmap='gray')
-    axes[7].set_title("Target Sample")
-    axes[7].axis('off')
+    # Plot original
+    axes[0].imshow(original, cmap='viridis')
+    axes[0].axis('off')
+    axes[0].set_title("Original", fontsize=10)
 
-    axes[8].imshow(reconstructed, cmap='gray')
-    axes[8].set_title("Reconstructed Output")
-    axes[8].axis('off')
+    # Plot target
+    axes[1].imshow(target_img, cmap='viridis')
+    axes[1].axis('off')
+    axes[1].set_title("Target", fontsize=10)
 
-    # Hide any unused axes
-    for i in range(len(t_sample_values) + 2, len(axes)):
-        axes[i].axis('off')
+    # Plot output
+    axes[2].imshow(output_img, cmap='viridis')
+    axes[2].axis('off')
+    axes[2].set_title("Output", fontsize=10)
 
-    # Display all plots
+    # Plot reconstruction
+    axes[3].imshow(decoded, cmap='viridis')
+    axes[3].axis('off')
+    axes[3].set_title("Reconstruction", fontsize=10)
+
+    # Plot histogram
+    bins = np.linspace(-3, 3, 100)
+    # axes[4].hist(aligned_real_t_distribution, bins=bins, alpha=0.6, label="Ground Truth", color="blue", density=True)
+    axes[4].hist(all_t, bins=bins, alpha=0.6, label="t", color="green", density=True)
+    axes[4].hist(aligned_t_values, bins=bins, alpha=0.6, label="$\\tilde{t}$", color="orange", density=True)
+    
+    axes[4].set_xlabel("$t$", fontsize=8)
+    axes[4].set_ylabel("Density", fontsize=8)
+    axes[4].legend(fontsize=8)
+    axes[4].spines['top'].set_visible(False)
+    axes[4].spines['right'].set_visible(False)
+
     plt.tight_layout()
     plt.show()
+
+
+def generate_rows_of_transformations(data, model, all_t, img_size, num_rows=5):
+    """
+    Plot multiple rows of transformations for different samples in a single grid,
+    showing the effect of continuously varying t without labels or titles.
+    """
+    t_tilde_values = np.linspace(-3.14, 3.14, 11)  # 10 evenly spaced t values
+    t_values = np.std(all_t) * t_tilde_values + np.mean(all_t)  # Normalize t to get t_tilde
+    fig, axes = plt.subplots(num_rows, 1, figsize=(20, num_rows * 2))  # One row per sample
+
+    with torch.no_grad():
+        for row_idx in range(num_rows):
+            sample_idx = row_idx  # Use the row index as the sample index
+            images = []
+
+            for t in t_values:
+                # Encode the original image
+                encoded = model.encoder(data[sample_idx].view(-1).unsqueeze(0).to(model.a.device))
+                z = encoded.view(1, model.c, model.latent_dim)
+
+                # Construct exp(tG)
+                G = model.G.detach().cpu().numpy()
+                exponent = t * G
+                exptG = expm(exponent)
+
+                # Apply transformation
+                z_transformed = torch.einsum('ica, iba -> icb', z, torch.tensor(exptG).unsqueeze(0).to(z.device))
+
+                # Decode the transformed latent representation
+                z_transformed_flat = z_transformed.view(1, -1)
+                decoded = model.decoder(z_transformed_flat)
+
+                # Reshape back to image size
+                decoded_image = decoded.view(img_size, img_size).detach().cpu().numpy()
+                images.append(decoded_image)
+
+            # Stack images horizontally for the current row
+            stacked_images = np.hstack(images)
+            axes[row_idx].imshow(stacked_images, cmap='gray')
+            axes[row_idx].axis('off')
+
+    # Remove all labels, title, and whitespace
+    fig.subplots_adjust(top=0.95, bottom=0.05, left=0.05, right=0.95, hspace=0.05)
+    plt.show()
+
+
+
+def generate_analysis_plots(data, target, output, model, all_t, aligned_t_values, aligned_real_t_distribution, img_size, wasserstein_score):
+    fig, axes = plt.subplots(2, 4, figsize=(20, 8))
+
+    # First row: Original, Target, Model Output, Distribution Comparison
+    sample_idx = 0
+    original = data[sample_idx].view(img_size, img_size).detach().cpu().numpy()
+    target_sample = target[sample_idx].view(img_size, img_size).detach().cpu().numpy()
+    reconstructed = output[sample_idx].view(img_size, img_size).detach().cpu().numpy()
+
+    axes[0, 0].imshow(original, cmap='gray')
+    axes[0, 0].set_title("Original", fontsize=10)
+    axes[0, 0].axis('off')
+
+    axes[0, 1].imshow(target_sample, cmap='gray')
+    axes[0, 1].set_title("Target", fontsize=10)
+    axes[0, 1].axis('off')
+
+    axes[0, 2].imshow(reconstructed, cmap='gray')
+    axes[0, 2].set_title(f"Output ($\\tilde{{t}}$={aligned_t_values[sample_idx]:.2f}, $t$={all_t[sample_idx]:.2f})", fontsize=10)
+    axes[0, 2].axis('off')
+
+    bins = np.linspace(-3, 3, 100)  # Bins for normalized data
+    axes[0, 3].hist(aligned_real_t_distribution, bins=bins, alpha=0.5, label="Ground Truth", color="blue", density=True)
+    axes[0, 3].hist(aligned_t_values, bins=bins, alpha=0.5, label="Predicted", color="orange", density=True)
+    axes[0, 3].legend(fontsize=8)
+    axes[0, 3].set_title(f"Wasserstein Dist: {wasserstein_score:.3f}", fontsize=10)
+    axes[0, 3].set_xlabel("$\\tilde{t}$", fontsize=8)
+    axes[0, 3].set_ylabel("Density", fontsize=8)
+    axes[0, 3].set_box_aspect(1) # Make the histogram approximately square
+
+    # Second row: Transformations for sampled t values using model.encoder and model.decoder
+    t_tilde_sample_values = [-2, -1, 0.18, 1]  # Only positive t-values
+    t_sample_values = np.std(all_t) *np.array(t_tilde_sample_values) + np.mean(all_t)
+    for t_tilde in t_tilde_sample_values:
+        axes[0, 3].axvline(x=t_tilde, color='red', linestyle='--', linewidth=0.8)
+
+    with torch.no_grad():
+        for i, t in enumerate(t_sample_values):
+            # Encode the original image
+            encoded = model.encoder(data[sample_idx].view(-1).unsqueeze(0).to(model.a.device))
+            t_tf = (t -np.mean(all_t))/np.std(all_t)
+            # Reshape for latent processing
+            z = encoded.view(1, model.c, model.latent_dim)
+
+            # Construct exp(tG)
+            G = model.G.detach().cpu().numpy()
+            exponent = t * G
+            exptG = expm(exponent)
+
+            # Apply transformation
+            z_transformed = torch.einsum('ica, iba -> icb', z, torch.tensor(exptG).unsqueeze(0).to(z.device))
+
+            # Decode the transformed latent representation
+            z_transformed_flat = z_transformed.view(1, -1)  # Flatten for decoding
+            decoded = model.decoder(z_transformed_flat)
+
+            # Reshape back to image size
+            decoded_image = decoded.view(img_size, img_size).detach().cpu().numpy()
+
+            # Plot the transformed image
+            axes[1, i].imshow(decoded_image, cmap='gray')
+            axes[1, i].set_title(f"$\\tilde{{t}}$={t_tf:.2f}, ${{t}}$={t:.2f}", fontsize=10)
+            axes[1, i].axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
 
 
 if __name__ == '__main__':
@@ -166,3 +294,4 @@ if __name__ == '__main__':
 
     config = ConfigParser.from_args(args)
     main(config)
+
