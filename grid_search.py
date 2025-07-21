@@ -3,19 +3,20 @@ import os
 
 # Hyperparameter grid
 latent_dims = [25, 81]
-channels = [1, 4]
+channels = [1]
 tf_ranges = [
-    [0, 0, 20, 1, 0, 0, 0],  # Small rotation
-    [0, 0, 0, 1.2, 0, 0, 0],  # Scaling
+    [15, 0, 0, 1, 0, 0, 0],  # Translation
+    [0, 0, 0, 1.5, 0, 0, 0],  # Scaling
     [0, 0, 90, 1, 0, 0, 0]   # Large rotation
 ]
-lambdas_a = [0.001, 1.0, 1000.0]
-lambdas_lasso = [0.001, 0.1]
+lambda_recon = 1.0
+lambdas_a = [1.0, 1000.0]
+lambdas_lasso = [0.0, 10.0]
 lambdas_z = [0.001]
 
 # Output directories
 config_dir = "configs"
-bash_script_path = "run_grid_search.sh"
+bash_script_path = "run_grid_search_galaxy.sh"
 
 os.makedirs(config_dir, exist_ok=True)
 
@@ -29,7 +30,7 @@ with open(bash_script_path, "w") as bash_script:
                 for lambda_a in lambdas_a:
                     for lambda_lasso in lambdas_lasso:
                         for lambda_z in lambdas_z:
-                            experiment_name = f"latent{latent_dim}_chan{channel}_rot{tf_range[2]}_a{lambda_a}_lasso{lambda_lasso}_z{lambda_z}"
+                            experiment_name = f"lat{latent_dim}_ch{channel}_rot{tf_range[2]}_sc{tf_range[3]}_tr{tf_range[0]}_a{lambda_a}_las{lambda_lasso}_z{lambda_z}"
                             config = {
                                 "name": experiment_name,
                                 "n_gpu": 1,
@@ -45,13 +46,13 @@ with open(bash_script_path, "w") as bash_script:
                                     }
                                 },
                                 "data_loader": {
-                                    "type": "SuperSyMNISTDataLoader",
+                                    "type": "GalaxSymDataLoader",
                                     "args": {
                                         "data_dir": "data/",
-                                        "batch_size": 512,
+                                        "batch_size": 1024,
                                         "shuffle": True,
                                         "validation_split": 0.2,
-                                        "num_workers": 2,
+                                        "num_workers": 0,
                                         "tf_range": tf_range
                                     }
                                 },
@@ -65,7 +66,7 @@ with open(bash_script_path, "w") as bash_script:
                                     }
                                 },
                                 "loss": "loss_all",
-                                "lambda_recon": 1.0,
+                                "lambda_recon": lambda_recon,
                                 "lambda_z": lambda_z,
                                 "lambda_lasso": lambda_lasso,
                                 "lambda_a": lambda_a,
@@ -82,17 +83,17 @@ with open(bash_script_path, "w") as bash_script:
                                 "lr_scheduler": {
                                     "type": "StepLR",
                                     "args": {
-                                        "step_size": 100,
-                                        "gamma": 0.1
+                                        "step_size": 100000,
+                                        "gamma": 1.0
                                     }
                                 },
                                 "trainer": {
-                                    "epochs": 100,
+                                    "epochs": 500,
                                     "save_dir": f"saved/{experiment_name}/",
                                     "save_period": 10,
                                     "verbosity": 2,
                                     "monitor": "min val_loss",
-                                    "early_stop": 100,
+                                    "early_stop": 200,
                                     "tensorboard": True
                                 }
                             }

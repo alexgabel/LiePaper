@@ -24,7 +24,7 @@ class Trainer(BaseTrainer):
         self.valid_data_loader = valid_data_loader
         self.do_validation = self.valid_data_loader is not None
         self.lr_scheduler = lr_scheduler
-        self.log_step = int(np.sqrt(data_loader.batch_size))
+        self.log_step = max(1, self.len_epoch // 5)
          # Number of points in validation set
         self.v_num = len(self.valid_data_loader.sampler)
         # Initialize t_history to be a numpy array of zeros:
@@ -98,18 +98,19 @@ class Trainer(BaseTrainer):
             self.optimizer.step()
             self.optimizer.zero_grad()
 
-            t = t.detach().cpu().numpy()
             # If t is batch x 3, then split and plot t, t2, t12 seperately:
             if len(t.shape) > 1 and t.shape[1] == 3:
-                t1 = t[:,0]
-                t2 = t[:,1]
-                t12 = t[:,2]
+                t_np = t.detach().cpu().numpy()
+                t1 = t_np[:,0]
+                t2 = t_np[:,1]
+                t12 = t_np[:,2]
                 
                 self.writer.add_histogram('t1', t1, epoch)
                 self.writer.add_histogram('t2', t2, epoch)
                 self.writer.add_histogram('t12', t12, epoch)
             else:
-                self.writer.add_histogram('t', t, epoch)
+                t_np = t.detach().cpu().numpy()
+                self.writer.add_histogram('t', t_np, epoch)
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
             self.train_metrics.update('loss', loss.item())
             with torch.no_grad():
@@ -172,9 +173,9 @@ class Trainer(BaseTrainer):
                     print('alpha: ', self.model.a/torch.norm(self.model.a, p=2))
                 # Logging t values to tensorboard using histogram:
                 ########################################
-                t_log = t.detach().cpu().numpy()
                 # If t_log is batch x 3, then split and plot t, t2, t12 seperately:
                 if len(t.shape) > 1 and t.shape[1] == 3:
+                    t_log = t.detach().cpu().numpy()
                     t1 = t_log[:,0]
                     t2 = t_log[:,1]
                     t12 = t_log[:,2]
@@ -182,6 +183,7 @@ class Trainer(BaseTrainer):
                     self.writer.add_histogram('t2', t2, epoch)
                     self.writer.add_histogram('t12', t12, epoch)
                 else:
+                    t_log = t.detach().cpu().numpy()
                     self.writer.add_histogram('t', t_log, epoch)
                     # Accumulate t values in t_history for single epoch:
                     self.t_history[epoch-1, batch_idx*data.shape[0]:(batch_idx+1)*data.shape[0]] = t_log
@@ -191,9 +193,10 @@ class Trainer(BaseTrainer):
                 for met in self.metric_ftns:
                     self.valid_metrics.update(met.__name__, met(output, target, data, exptG, 
                                                                 combined ,self.config, self.model))
-                self.writer.add_image('input', make_grid(data[:8*5].cpu(), nrow=8, normalize=True))
-                self.writer.add_image('output', make_grid(output[:8*5].cpu(), nrow=8, normalize=True))
-                self.writer.add_image('target', make_grid(target[:8*5].cpu(), nrow=8, normalize=True))
+                if batch_idx % self.log_step == 0:
+                    self.writer.add_image('input', make_grid(data[:8*5].cpu(), nrow=8, normalize=True))
+                    self.writer.add_image('output', make_grid(output[:8*5].cpu(), nrow=8, normalize=True))
+                    self.writer.add_image('target', make_grid(target[:8*5].cpu(), nrow=8, normalize=True))
 
         # add histogram of model parameters to the tensorboard
         for name, p in self.model.named_parameters():

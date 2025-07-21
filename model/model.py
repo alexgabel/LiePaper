@@ -175,7 +175,7 @@ class EncoderLieTDecoder(BaseModel):
         # field form of the generator G) on the gaussian blob. 
 
         if zTest and self.i < 1:
-            ground_truth_a = torch.tensor([0, 0, -1,0,0,0,0, 1, 0,0,0,0], device=self.a.device, dtype=torch.float32)
+            ground_truth_a = torch.tensor([1, 0, 0,0,0,0], device=self.a.device, dtype=torch.float32)
         
             # Calculate G loss
             g_loss = self.calculate_g_loss(ground_truth_a)

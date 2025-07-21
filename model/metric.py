@@ -1,6 +1,31 @@
 import torch
 import torch.nn.functional as F
 
+def get_correct_alpha(tf_range, non_affine, device):
+    if non_affine:
+        alpha = torch.zeros(12, device=device)
+        loc_tx, loc_ty = 0, 6
+        loc_rot = (2, 7)
+        loc_scale = (1, 8)
+    else:
+        alpha = torch.zeros(6, device=device)
+        loc_tx, loc_ty = 0, 3
+        loc_rot = (2, 4)
+        loc_scale = (1, 5)
+
+    if tf_range[0] != 0:
+        alpha[loc_tx] = 1
+    if tf_range[1] != 0:
+        alpha[loc_ty] = 1
+    if tf_range[2] != 0:
+        alpha[loc_rot[0]] = -1
+        alpha[loc_rot[1]] = 1
+    if tf_range[3] != 1:
+        alpha[loc_scale[0]] = 1
+        alpha[loc_scale[1]] = 1
+
+    return alpha / torch.norm(alpha, p=2), loc_tx, loc_ty, loc_rot, loc_scale
+
 def accuracy(output, target):
     with torch.no_grad():
         pred = torch.argmax(output, dim=1)
@@ -59,133 +84,28 @@ def generator_mse(output, target, data, inputtnet, combined, config, model):
     alpha_estimate = model.a / torch.norm(model.a, p=2)
     tf_range = config['data_loader']['args']['tf_range']
     non_affine = config['arch']['args']['non_affine']
-
-    if non_affine: # initialize empty tensor of length 12
-        correct_alpha = torch.zeros(12) 
-        # order: [Lx, xLx, yLx, x2Lx,  xyLx, y2Lx, Ly, xLy, yLy, x2Ly,  xyLy, y2Ly]
-        loc_tx = 0
-        loc_ty = 6
-        loc_rot = (2, 7)
-        loc_scale = (1, 8)
-    else:
-        correct_alpha = torch.zeros(6)
-        # order: [Lx, xLx, yLx, Ly, xLy, yLy]
-        loc_tx = 0
-        loc_ty = 3
-        loc_rot = (2, 4)
-        loc_scale = (1, 5)
-
-    # For each non-zero value in tf_range, add coefficients to 
-    # the correct_alpha tensor
-    if tf_range[0] != 0:
-        correct_alpha[loc_tx] = 1
-    if tf_range[1] != 0:
-        correct_alpha[loc_ty] = 1
-    if tf_range[2] != 0:
-        correct_alpha[loc_rot[0]] = -1
-        correct_alpha[loc_rot[1]] = 1
-    if tf_range[3] != 1:
-        correct_alpha[loc_scale[0]] = 1
-        correct_alpha[loc_scale[1]] = 1
-
-
-    correct_alpha = correct_alpha / torch.norm(correct_alpha, p=2)
-    loss = mse(alpha_estimate.cpu(), correct_alpha)
+    correct_alpha, _, _, _, _ = get_correct_alpha(tf_range, non_affine, alpha_estimate.device)
+    loss = mse(alpha_estimate, correct_alpha)
     return loss
 
 def drift_mse(output, target, data, inputtnet, combined, config, model):
     alpha_estimate = model.a / torch.norm(model.a, p=2)
-
     tf_range = config['data_loader']['args']['tf_range']
     non_affine = config['arch']['args']['non_affine']
-
-    dev = alpha_estimate.device
-
-    if non_affine: # initialize empty tensor of length 12
-        correct_alpha = torch.zeros(12, device=dev) 
-        # order: [Lx, xLx, yLx, x2Lx,  xyLx, y2Lx, Ly, xLy, yLy, x2Ly,  xyLy, y2Ly]
-        loc_tx = 0
-        loc_ty = 6
-        loc_rot = (2, 7)
-        loc_scale = (1, 8)
-    else:
-        correct_alpha = torch.zeros(6, device=dev)
-        # order: [Lx, xLx, yLx, Ly, xLy, yLy]
-        loc_tx = 0
-        loc_ty = 3
-        loc_rot = (2, 4)
-        loc_scale = (1, 5)
-
-    # For each non-zero value in tf_range, add coefficients to 
-    # the correct_alpha tensor
-    if tf_range[0] != 0:
-        correct_alpha[loc_tx] = 1
-    if tf_range[1] != 0:
-        correct_alpha[loc_ty] = 1
-    if tf_range[2] != 0:
-        correct_alpha[loc_rot[0]] = -1
-        correct_alpha[loc_rot[1]] = 1
-    if tf_range[3] != 1:
-        correct_alpha[loc_scale[0]] = 1
-        correct_alpha[loc_scale[1]] = 1
-
-
-    correct_alpha = correct_alpha / torch.norm(correct_alpha, p=2)
-
-    # Create index tensor on the same device
-    indices = torch.tensor([loc_tx, loc_ty], device=dev)
-
-    # Calculate the loss between entries loc_tx, loc_ty of 
-    # both alphas only
-    alpha_drift_estimate = torch.index_select(alpha_estimate, 0,indices)
-    correct_alpha_drift = torch.index_select(correct_alpha, 0,indices)
-
-    loss = mse(alpha_drift_estimate.cpu(), correct_alpha_drift.cpu())
+    correct_alpha, loc_tx, loc_ty, _, _ = get_correct_alpha(tf_range, non_affine, alpha_estimate.device)
+    indices = torch.tensor([loc_tx, loc_ty], device=alpha_estimate.device)
+    alpha_drift_estimate = torch.index_select(alpha_estimate, 0, indices)
+    correct_alpha_drift = torch.index_select(correct_alpha, 0, indices)
+    loss = mse(alpha_drift_estimate, correct_alpha_drift)
     return loss
 
 def diffusion_mse(output, target, data, inputtnet, combined, config, model):
     alpha_estimate = model.a / torch.norm(model.a, p=2)
     tf_range = config['data_loader']['args']['tf_range']
     non_affine = config['arch']['args']['non_affine']
-
-    dev = alpha_estimate.device
-
-    if non_affine: # initialize empty tensor of length 12
-        correct_alpha = torch.zeros(12, device=dev) 
-        # order: [Lx, xLx, yLx, x2Lx,  xyLx, y2Lx, Ly, xLy, yLy, x2Ly,  xyLy, y2Ly]
-        loc_tx = 0
-        loc_ty = 6
-        loc_rot = (2, 7)
-        loc_scale = (1, 8)
-    else:
-        correct_alpha = torch.zeros(6,  device=dev)
-        # order: [Lx, xLx, yLx, Ly, xLy, yLy]
-        loc_tx = 0
-        loc_ty = 3
-        loc_rot = (2, 4)
-        loc_scale = (1, 5)
-
-    # For each non-zero value in tf_range, add coefficients to 
-    # the correct_alpha tensor
-    if tf_range[0] != 0:
-        correct_alpha[loc_tx] = 1
-    if tf_range[1] != 0:
-        correct_alpha[loc_ty] = 1
-    if tf_range[2] != 0:
-        correct_alpha[loc_rot[0]] = -1
-        correct_alpha[loc_rot[1]] = 1
-    if tf_range[3] != 1:
-        correct_alpha[loc_scale[0]] = 1
-        correct_alpha[loc_scale[1]] = 1
-
-
-    correct_alpha = correct_alpha / torch.norm(correct_alpha, p=2)
-    indices = torch.tensor(loc_rot + loc_scale, device=dev)
-    # Calculate the loss between entries loc_tx, loc_ty of 
-    # both alphas only
-    alpha_diff_estimate = torch.index_select(alpha_estimate, 0,indices)
-    correct_alpha_diff = torch.index_select(correct_alpha, 0,indices)
-    
-
-    loss = mse(alpha_diff_estimate.cpu(), correct_alpha_diff.cpu())
+    correct_alpha, _, _, loc_rot, loc_scale = get_correct_alpha(tf_range, non_affine, alpha_estimate.device)
+    indices = torch.tensor(loc_rot + loc_scale, device=alpha_estimate.device)
+    alpha_diff_estimate = torch.index_select(alpha_estimate, 0, indices)
+    correct_alpha_diff = torch.index_select(correct_alpha, 0, indices)
+    loss = mse(alpha_diff_estimate, correct_alpha_diff)
     return loss

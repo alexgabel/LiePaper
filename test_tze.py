@@ -87,7 +87,7 @@ def main(config):
 
 
             # computing loss, metrics on test set
-            loss = loss_fn(output, target)
+            loss = loss_fn(output, target, data, exptG, combined, config, model)
             batch_size = data.shape[0]
             total_loss += loss.item() * batch_size
             for i, metric in enumerate(metric_fns):
@@ -114,7 +114,7 @@ def main(config):
 
         # Compare G_est to ground truth G:
         D = model.generate_basis(data_size)
-        a = torch.tensor([0.0,0.7,0,0.0,0,0.7])
+        a = torch.tensor([1.0,0.0,0,0.0,0,0.0])
         a_normed = a*1.0 #/ np.linalg.norm(a)
         G_rot = torch.einsum('i, imn -> mn', a_normed, D)
 
@@ -132,9 +132,11 @@ def main(config):
         # plot both G_rot and G_est:
         # import matplotlib.pyplot as plt
         plt.imshow(G_rot.detach().cpu().numpy(), cmap="seismic", vmin=-1, vmax=1)
-        plt.show()
+        plt.savefig("images/G_rot.png")
+        plt.close()
         plt.imshow(G_est, cmap="seismic", vmin=-1, vmax=1)
-        plt.show()
+        plt.savefig("images/G_est.png")
+        plt.close()
 
         idd = 1
         # plot the target:
@@ -172,7 +174,8 @@ def main(config):
             for ax in axs.flat:
                 ax.label_outer()
 
-            plt.show()
+            plt.savefig(f"images/sample_T_{T:.2f}.png")
+            plt.close()
 
         
 

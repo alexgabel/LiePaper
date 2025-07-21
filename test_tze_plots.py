@@ -29,6 +29,8 @@ def main(config):
     # Set a random seed
     set_random_seed(42)
     logger = config.get_logger('test')
+    out_dir = config.get("output_dir", "images")
+    os.makedirs(out_dir, exist_ok=True)
 
     epsilon = 0  # Adjustable value for epsilon
 
@@ -93,7 +95,8 @@ def main(config):
     # means_deg = [-90, -45, 0, 45, 90]
     # means_rad = [np.deg2rad(mean) for mean in means_deg]
     # std_dev_rad = np.deg2rad(5)
-    real_t_distribution = np.random.normal(1, 1.2, size=all_t.shape[0])
+    U = 1.0
+    real_t_distribution = np.random.uniform(-U, U, size=all_t.shape[0])  # Uniform distribution for simplicity
     
     # np.concatenate([
     #     np.random.normal(mean, std_dev_rad, size=all_t.shape[0] // len(means_rad))
@@ -109,12 +112,12 @@ def main(config):
     logger.info(f"Wasserstein Distance between ground truth and predicted: {wasserstein_score:.5f}")
 
     # Generate and save analysis plots
-    plot_sample_pair_and_histogram(all_data, all_target, all_output, model, all_t, aligned_t_values)
-    generate_analysis_plots(all_data, all_target, all_output, model, all_t, aligned_t_values, aligned_real_t_distribution, img_size, wasserstein_score)
-    generate_rows_of_transformations(all_data, model, all_t, img_size)
+    plot_sample_pair_and_histogram(all_data, all_target, all_output, model, all_t, aligned_t_values, out_dir)
+    generate_analysis_plots(all_data, all_target, all_output, model, all_t, aligned_t_values, aligned_real_t_distribution, img_size, wasserstein_score, out_dir)
+    generate_rows_of_transformations(all_data, all_target, model, all_t, img_size, out_dir)
 
 
-def plot_sample_pair_and_histogram(data, target, output, model, all_t, aligned_t_values):
+def plot_sample_pair_and_histogram(data, target, output, model, all_t, aligned_t_values, out_dir):
     """
     Plot a pair of input images (original and target), the output, reconstruction,
     and a histogram.
@@ -132,28 +135,31 @@ def plot_sample_pair_and_histogram(data, target, output, model, all_t, aligned_t
     target_img = target[sample_idx].view(img_size, img_size).detach().cpu().numpy()
     output_img = output[sample_idx].view(img_size, img_size).detach().cpu().numpy()
 
-    # Create figure
-    fig, axes = plt.subplots(1, 5, figsize=(24, 4))
+    # Create figure with gridspec for wider histogram
+    fig = plt.figure(figsize=(18, 2.8))
+    gs = fig.add_gridspec(1, 6, width_ratios=[1, 1, 1, 1, 1.5, 0.1])
+    axes = [fig.add_subplot(gs[0, i]) for i in range(5)]
+    fig.subplots_adjust(wspace=0.4)
 
     # Plot original
     axes[0].imshow(original, cmap='viridis')
     axes[0].axis('off')
-    axes[0].set_title("Original", fontsize=10)
+    axes[0].set_title("Original", fontsize=14)
 
     # Plot target
     axes[1].imshow(target_img, cmap='viridis')
     axes[1].axis('off')
-    axes[1].set_title("Target", fontsize=10)
+    axes[1].set_title("Target", fontsize=14)
 
     # Plot output
     axes[2].imshow(output_img, cmap='viridis')
     axes[2].axis('off')
-    axes[2].set_title("Output", fontsize=10)
+    axes[2].set_title("Output", fontsize=14)
 
     # Plot reconstruction
     axes[3].imshow(decoded, cmap='viridis')
     axes[3].axis('off')
-    axes[3].set_title("Reconstruction", fontsize=10)
+    axes[3].set_title("Reconstruction", fontsize=14)
 
     # Plot histogram
     bins = np.linspace(-3, 3, 100)
@@ -161,28 +167,47 @@ def plot_sample_pair_and_histogram(data, target, output, model, all_t, aligned_t
     axes[4].hist(all_t, bins=bins, alpha=0.6, label="t", color="green", density=True)
     axes[4].hist(aligned_t_values, bins=bins, alpha=0.6, label="$\\tilde{t}$", color="orange", density=True)
     
-    axes[4].set_xlabel("$t$", fontsize=8)
-    axes[4].set_ylabel("Density", fontsize=8)
-    axes[4].legend(fontsize=8)
+    axes[4].set_xlabel("$t$", fontsize=14)
+    axes[4].set_ylabel("Density", fontsize=14)
+    axes[4].legend(fontsize=12)
     axes[4].spines['top'].set_visible(False)
     axes[4].spines['right'].set_visible(False)
 
     plt.tight_layout()
-    plt.show()
+    os.makedirs(out_dir, exist_ok=True)
+    plt.savefig(os.path.join(out_dir, "sample_pair_and_histogram.png"))
+    plt.close()
 
 
-def generate_rows_of_transformations(data, model, all_t, img_size, num_rows=5):
+def generate_rows_of_transformations(data, target, model, all_t, img_size, out_dir, num_rows=5):
     """
     Plot multiple rows of transformations for different samples in a single grid,
     showing the effect of continuously varying t without labels or titles.
     """
     t_tilde_values = np.linspace(-3.14, 3.14, 11)  # 10 evenly spaced t values
     t_values = np.std(all_t) * t_tilde_values + np.mean(all_t)  # Normalize t to get t_tilde
-    fig, axes = plt.subplots(num_rows, 1, figsize=(20, num_rows * 2))  # One row per sample
+    num_cols = len(t_values) + 2
+    fig, axes = plt.subplots(num_rows, num_cols + 1, figsize=(1.8 * (num_cols + 1), 2.0 * num_rows))  # One row per sample
 
     with torch.no_grad():
         for row_idx in range(num_rows):
             sample_idx = row_idx  # Use the row index as the sample index
+            
+            original = data[sample_idx].view(img_size, img_size).detach().cpu().numpy()
+            target_img = target[sample_idx].view(img_size, img_size).detach().cpu().numpy()
+
+            axes[row_idx, 0].imshow(original, cmap='gray')
+            axes[row_idx, 0].axis('off')
+            if row_idx == 0:
+                axes[row_idx, 0].set_title("Original", fontsize=16)
+
+            axes[row_idx, 1].imshow(target_img, cmap='gray')
+            axes[row_idx, 1].axis('off')
+            if row_idx == 0:
+                axes[row_idx, 1].set_title("Target", fontsize=16)
+
+            axes[row_idx, 2].axis('off')  # blank separator column
+
             images = []
 
             for t in t_values:
@@ -207,18 +232,23 @@ def generate_rows_of_transformations(data, model, all_t, img_size, num_rows=5):
                 images.append(decoded_image)
 
             # Stack images horizontally for the current row
-            stacked_images = np.hstack(images)
-            axes[row_idx].imshow(stacked_images, cmap='gray')
-            axes[row_idx].axis('off')
+            for col_idx, img in enumerate(images):
+                axes[row_idx, col_idx + 3].imshow(img, cmap='gray')
+                axes[row_idx, col_idx + 3].axis('off')
+
+        for col_idx, t_val in enumerate(t_tilde_values):
+            axes[0, col_idx + 3].set_title(f"$\\tilde{{t}}$={t_val:.2f}", fontsize=16)
 
     # Remove all labels, title, and whitespace
-    fig.subplots_adjust(top=0.95, bottom=0.05, left=0.05, right=0.95, hspace=0.05)
-    plt.show()
+    fig.subplots_adjust(top=0.95, bottom=0.05, left=0.05, right=0.95, hspace=0.05, wspace=0.03)
+    os.makedirs(out_dir, exist_ok=True)
+    plt.savefig(os.path.join(out_dir, "rows_of_transformations.png"))
+    plt.close()
 
 
 
-def generate_analysis_plots(data, target, output, model, all_t, aligned_t_values, aligned_real_t_distribution, img_size, wasserstein_score):
-    fig, axes = plt.subplots(2, 4, figsize=(20, 8))
+def generate_analysis_plots(data, target, output, model, all_t, aligned_t_values, aligned_real_t_distribution, img_size, wasserstein_score, out_dir):
+    fig, axes = plt.subplots(2, 4, figsize=(12, 6))
 
     # First row: Original, Target, Model Output, Distribution Comparison
     sample_idx = 0
@@ -227,24 +257,24 @@ def generate_analysis_plots(data, target, output, model, all_t, aligned_t_values
     reconstructed = output[sample_idx].view(img_size, img_size).detach().cpu().numpy()
 
     axes[0, 0].imshow(original, cmap='gray')
-    axes[0, 0].set_title("Original", fontsize=10)
+    axes[0, 0].set_title("Original", fontsize=14)
     axes[0, 0].axis('off')
 
     axes[0, 1].imshow(target_sample, cmap='gray')
-    axes[0, 1].set_title("Target", fontsize=10)
+    axes[0, 1].set_title("Target", fontsize=14)
     axes[0, 1].axis('off')
 
     axes[0, 2].imshow(reconstructed, cmap='gray')
-    axes[0, 2].set_title(f"Output ($\\tilde{{t}}$={aligned_t_values[sample_idx]:.2f}, $t$={all_t[sample_idx]:.2f})", fontsize=10)
+    axes[0, 2].set_title(f"Output ($\\tilde{{t}}$={aligned_t_values[sample_idx]:.2f}, $t$={all_t[sample_idx]:.2f})", fontsize=14)
     axes[0, 2].axis('off')
 
     bins = np.linspace(-3, 3, 100)  # Bins for normalized data
-    axes[0, 3].hist(aligned_real_t_distribution, bins=bins, alpha=0.5, label="Ground Truth", color="blue", density=True)
-    axes[0, 3].hist(aligned_t_values, bins=bins, alpha=0.5, label="Predicted", color="orange", density=True)
-    axes[0, 3].legend(fontsize=8)
-    axes[0, 3].set_title(f"Wasserstein Dist: {wasserstein_score:.3f}", fontsize=10)
-    axes[0, 3].set_xlabel("$\\tilde{t}$", fontsize=8)
-    axes[0, 3].set_ylabel("Density", fontsize=8)
+    axes[0, 3].hist(aligned_real_t_distribution, bins=bins, alpha=0.5, label="True", color="blue", density=True)
+    axes[0, 3].hist(aligned_t_values, bins=bins, alpha=0.5, label="Pred.", color="orange", density=True)
+    axes[0, 3].legend(fontsize=12)
+    axes[0, 3].set_title(f"Wasserstein Dist: {wasserstein_score:.3f}", fontsize=14)
+    axes[0, 3].set_xlabel("$\\tilde{t}$", fontsize=14)
+    axes[0, 3].set_ylabel("Density", fontsize=14)
     axes[0, 3].set_box_aspect(1) # Make the histogram approximately square
 
     # Second row: Transformations for sampled t values using model.encoder and model.decoder
@@ -278,12 +308,13 @@ def generate_analysis_plots(data, target, output, model, all_t, aligned_t_values
 
             # Plot the transformed image
             axes[1, i].imshow(decoded_image, cmap='gray')
-            axes[1, i].set_title(f"$\\tilde{{t}}$={t_tf:.2f}, ${{t}}$={t:.2f}", fontsize=10)
+            axes[1, i].set_title(f"$\\tilde{{t}}$={t_tf:.2f}, ${{t}}$={t:.2f}", fontsize=14)
             axes[1, i].axis('off')
 
     plt.tight_layout()
-    plt.show()
-
+    os.makedirs(out_dir, exist_ok=True)
+    plt.savefig(os.path.join(out_dir, "analysis_plots.png"))
+    plt.close()
 
 
 if __name__ == '__main__':
@@ -291,7 +322,7 @@ if __name__ == '__main__':
     args.add_argument('-c', '--config', default=None, type=str, help='Config file path')
     args.add_argument('-r', '--resume', default=None, type=str, help='Path to checkpoint')
     args.add_argument('-d', '--device', default=None, type=str, help='GPU indices to enable')
+    args.add_argument('-o', '--output_dir', default='images', type=str, help='Output directory for images')
 
     config = ConfigParser.from_args(args)
     main(config)
-

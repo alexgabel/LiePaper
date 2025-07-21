@@ -136,7 +136,8 @@ def generate_analysis_plots(data, target, output, model, epsilon, t, t2, t12, im
     plt.xlabel("t Values")
     plt.ylabel("Frequency")
     plt.legend(loc='upper right')
-    plt.show()
+    plt.savefig('images/histograms_t_t2_t12.png')
+    plt.close()
 
     # Original vs. Output: Visualize a data sample and corresponding output
     sample_idx = 0
@@ -162,7 +163,8 @@ def generate_analysis_plots(data, target, output, model, epsilon, t, t2, t12, im
 
     # Display all plots
     plt.tight_layout()
-    plt.show()
+    plt.savefig('images/analysis_grid_plots.png')
+    plt.close()
 
 
 if __name__ == '__main__':

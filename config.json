@@ -1,5 +1,5 @@
 {
-    "name": "RotFinal_BIGA_O1",
+    "name": "SuperGalaxy_lowlasso_rot",
     "n_gpu": 1,
 
     "arch": {
@@ -24,14 +24,14 @@
         }
     },
     "data_loader": {
-        "type": "SyMNISTDataLoader",
+        "type": "SuperGalaxSymDataLoader",
         "args":{
             "data_dir": "data/",
             "batch_size": 1024,
             "shuffle": true,
             "validation_split": 0.2,
-            "num_workers": 2,
-            "tf_range": [0,0,45,1,0,0,0]
+            "num_workers": 0,
+            "tf_range": [0,0,180,1,0,0,0]
         }
     },
     "optimizer": {
@@ -47,7 +47,7 @@
     "lambda_recon": 1.0,
     "lambda_z": 0.001,
     "lambda_lasso": 0.1,
-    "lambda_a": 100000.0,
+    "lambda_a": 1000.0,
     "metrics": [
         "mse_loss",
         "generator_mse",
@@ -61,19 +61,19 @@
     "lr_scheduler": {
         "type": "StepLR",
         "args": {
-            "step_size": 100,
-            "gamma": 0.1
+            "step_size": 1000,
+            "gamma": 1.0
         }
     },
     "trainer": {
-        "epochs": 100,
+        "epochs": 1000,
 
         "save_dir": "saved/",
         "save_period": 10,
         "verbosity": 2,
         
         "monitor": "min val_loss",
-        "early_stop": 100,
+        "early_stop": 1000,
 
         "tensorboard": true
     }
