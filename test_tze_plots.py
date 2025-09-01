@@ -25,11 +25,12 @@ def set_random_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
 
 
-def main(config):
+def main(config, output_dir='images'):
     # Set a random seed
     set_random_seed(42)
     logger = config.get_logger('test')
-    out_dir = config.get("output_dir", "images")
+    out_dir = output_dir
+
     os.makedirs(out_dir, exist_ok=True)
 
     epsilon = 0  # Adjustable value for epsilon
@@ -136,7 +137,7 @@ def plot_sample_pair_and_histogram(data, target, output, model, all_t, aligned_t
     output_img = output[sample_idx].view(img_size, img_size).detach().cpu().numpy()
 
     # Create figure with gridspec for wider histogram
-    fig = plt.figure(figsize=(18, 2.8))
+    fig = plt.figure(figsize=(14, 2.8))
     gs = fig.add_gridspec(1, 6, width_ratios=[1, 1, 1, 1, 1.5, 0.1])
     axes = [fig.add_subplot(gs[0, i]) for i in range(5)]
     fig.subplots_adjust(wspace=0.4)
@@ -318,11 +319,12 @@ def generate_analysis_plots(data, target, output, model, all_t, aligned_t_values
 
 
 if __name__ == '__main__':
-    args = argparse.ArgumentParser(description='PyTorch Template')
+    args = argparse.ArgumentParser(description='PyTorch')
     args.add_argument('-c', '--config', default=None, type=str, help='Config file path')
     args.add_argument('-r', '--resume', default=None, type=str, help='Path to checkpoint')
     args.add_argument('-d', '--device', default=None, type=str, help='GPU indices to enable')
-    args.add_argument('-o', '--output_dir', default='images', type=str, help='Output directory for images')
+    args.add_argument('--output_dir', default='images', type=str, help='Directory to save images')
 
+    parsed_args = args.parse_args()
     config = ConfigParser.from_args(args)
-    main(config)
+    main(config, output_dir=parsed_args.output_dir)

@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import os
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
@@ -122,7 +123,8 @@ class EncoderLieTDecoder(BaseModel):
 
         self.i = 0
 
-    def forward(self, x, epsilon=0, tMax=0, zTest=False):
+    def forward(self, x, epsilon=0, tMax=0, zTest=False, out_path=None):
+        self.out_path = out_path
         # Normalize a vector by dividing by its norm:
         a_norm = torch.norm(self.a, p=2)
         a_normed = self.a / a_norm
@@ -146,9 +148,9 @@ class EncoderLieTDecoder(BaseModel):
             t = self.t(torch.cat((x,y), dim=1))
             t = t.squeeze()
 
-        elif epsilon != 0 and tMax == 0 and self.i < 1:
+        elif epsilon != 0 and tMax == 0:
             t = epsilon * torch.ones(x.size(0)).to("cuda:0")
-        elif tMax > 0 and epsilon == 0 and self.i < 1:
+        elif tMax > 0 and epsilon == 0:
             # tMax sets the maximum value of t in the interval [-tMax, tMax]
             # in which the number of steps agrees with the batch size:
             t = torch.linspace(-tMax, tMax, x.size(0)).to("cuda:0")
@@ -175,7 +177,7 @@ class EncoderLieTDecoder(BaseModel):
         # field form of the generator G) on the gaussian blob. 
 
         if zTest and self.i < 1:
-            ground_truth_a = torch.tensor([1, 0, 0,0,0,0], device=self.a.device, dtype=torch.float32)
+            ground_truth_a = torch.tensor([0, 0, -1,0,1,0], device=self.a.device, dtype=torch.float32)
         
             # Calculate G loss
             g_loss = self.calculate_g_loss(ground_truth_a)
@@ -189,8 +191,8 @@ class EncoderLieTDecoder(BaseModel):
                 print(f"  Non-Affine MSE: {g_loss['g_nonaffine_mse']:.4f} (Neg: {g_loss['neg_g_nonaffine_mse']:.4f})")
 
             # Visualize the generator field and eigenvectors
-            self.visualize(z, z_t, t, a_normed, ground_truth_a, plot_eigen=False)
-            self.plot_patches(z, z_t, t, ground_truth_a)
+            self.visualize(z, z_t, t, a_normed, ground_truth_a, plot_eigen=False, out_path=self.out_path)
+            self.plot_patches(z, z_t, t, ground_truth_a, out_path=self.out_path)
             self.i += 1
         ################################    
         x_t = x_t.view(data_shape)
@@ -373,7 +375,7 @@ class EncoderLieTDecoder(BaseModel):
             'neg_g_nonaffine_mse': neg_g_nonaffine_mse
         }
 
-    def visualize(self, z, z_t, t, a_normed, ground_truth_a, plot_eigen=False):
+    def visualize(self, z, z_t, t, a_normed, ground_truth_a, plot_eigen=False, out_path=None):
         # Generator visualization
         grid_size = 10
         # Get d from square root of latent dimension
@@ -424,19 +426,45 @@ class EncoderLieTDecoder(BaseModel):
         min_g_mse = [g_loss['g_mse'], g_loss['neg_g_mse']][argmin_g]
         min_drift_mse = [g_loss['g_drift_mse'], g_loss['neg_g_drift_mse']][argmin_g]
         min_diffusion_mse = [g_loss['g_diff_mse'], g_loss['neg_g_diff_mse']][argmin_g]
-
+        is_complex = np.any(np.iscomplex(eigenvalues))
         # Add MSE information to the title
-        title_info = (
-            f"MSE: {min_g_mse:.4f}, Drift: {min_drift_mse:.4f}, Diff.: {min_diffusion_mse:.4f}"
-        )
-        plt.title(f"{title_info}")
+        # --- BEGIN PATCH: Replace TODO title with discriminant/trace/det logic ---
+        trace = np.trace(diffusion)
+        det = np.linalg.det(diffusion)
+        discriminant = trace**2 - 4 * det
+
+        if det < 0:
+            desc = "Saddle point (real eigs)"
+        elif discriminant < 0:
+            if trace < 0:
+                desc = "Spiral sink (complex eigs)"
+            elif trace > 0:
+                desc = "Spiral source (complex eigs)"
+            else:
+                desc = "Center (circular flow)"
+        else:
+            if trace > 0:
+                desc = "Unstable node (real eigs)"
+            elif trace < 0:
+                desc = "Stable node (real eigs)"
+            else:
+                desc = "Degenerate node / shear"
+
+        plt.title(desc, fontsize=12)
+        # --- END PATCH ---
 
         # plt.title("Generator Vector Field with Eigenvectors")
         plt.xlabel("X")
         plt.ylabel("Y")
         plt.grid(True)
         # plt.legend(loc='upper left', fontsize=8)
-        plt.show()
+        if out_path is not None:
+            os.makedirs(out_path, exist_ok=True)
+            filename = 'visualize.png'  # or 'patches.png', depending on the function
+            plt.savefig(os.path.join(out_path, filename), bbox_inches='tight')
+            plt.close()
+        else:
+            plt.show()
 
     def taylor_loss(self, combined_data, order=1):
         # Normalize a vector by dividing by its norm:
@@ -477,12 +505,12 @@ class EncoderLieTDecoder(BaseModel):
 
         return x_t, y
     
-    def plot_patches(self, z, z_t, t, ground_truth_a=None):
+    def plot_patches(self, z, z_t, t, ground_truth_a=None, out_path=None):
         latent_dim_sqrt = int(np.sqrt(self.latent_dim))
         print(z.shape, z_t.shape, t.shape)
 
         # Initialize the figure with 6 rows and 11 columns
-        fig, axs = plt.subplots(6, 11, figsize=(20, 12))  # Adjusted height for better paper fit
+        fig, axs = plt.subplots(6, 11, figsize=(20, 9))  # Adjusted height for better paper fit
 
         # Loop over the first 11 values to display z and z_t patches
         for j in range(11):
@@ -490,7 +518,7 @@ class EncoderLieTDecoder(BaseModel):
             z_plot = z[j, 0].view(latent_dim_sqrt, latent_dim_sqrt)
             axs[0, j].imshow(z_plot.detach().cpu().numpy(), cmap='viridis')
             axs[0, j].axis('off')
-            axs[0, j].set_title(f't = {t[j].item():.2f}', fontsize=8)
+            axs[0, j].set_title(f't = {t[j].item():.2f}', fontsize=14)
 
             # Plot the z_t patch in the second row
             z_t_plot = z_t[j, 0].view(latent_dim_sqrt, latent_dim_sqrt)
@@ -535,19 +563,23 @@ class EncoderLieTDecoder(BaseModel):
             axs[5, j].imshow(z_t_temp.view(latent_dim_sqrt, latent_dim_sqrt).detach().cpu().numpy(), cmap='viridis')
             axs[5, j].axis('off')
 
-        # Add vertical labels centered on rows and closer to the grid
-        fig.text(0.02, 0.88, r'$\mathbf{z}_0$', va='center', ha='center', rotation='vertical', fontsize=12)
-        fig.text(0.02, 0.72, r'$\mathbf{z}_t$', va='center', ha='center', rotation='vertical', fontsize=12)
+        row_labels = [r"$\mathbf{z}$", r"$\mathbf{z}_t$", "Learnt TF\n(line)", "GT TF\n(line)", "Learnt TF\n(blob)", "GT TF\n(blob)"]
 
-        fig.text(0.02, 0.56, 'learnt TF\n(line)', va='center', ha='center', rotation='vertical', fontsize=12)
-        fig.text(0.02, 0.40, 'GT TF\n(line)', va='center', ha='center', rotation='vertical', fontsize=12)
 
-        fig.text(0.02, 0.24, 'learnt TF\n(blob)', va='center', ha='center', rotation='vertical', fontsize=12)
-        fig.text(0.02, 0.08, 'GT TF\n(blob)', va='center', ha='center', rotation='vertical', fontsize=12)
+        for i, label in enumerate(row_labels):
+            axs[i, 0].text(-0.2, 0.5, label,
+                        transform=axs[i, 0].transAxes,
+                        fontsize=14, va='center', ha='right', rotation=90)
 
         # Adjust layout and display
-        plt.tight_layout(rect=[0.05, 0, 1, 1])  # Adjust rect to bring labels closer
-        plt.show()
+        fig.subplots_adjust(left=0.1, right=0.99, top=0.95, bottom=0.05, hspace=0.08, wspace=0.05)
+        if out_path is not None:
+            os.makedirs(out_path, exist_ok=True)
+            filename = 'patches.png'
+            plt.savefig(os.path.join(out_path, filename), bbox_inches='tight')
+            plt.close()
+        else:
+            plt.show()
 
 
 
@@ -670,9 +702,9 @@ class EncoderLieMulTDecoder(BaseModel):
             out_t= self.t(torch.cat((x,y), dim=1))
             t, t2, t12 = out_t[:,0], out_t[:,1], out_t[:,2]
 
-        elif epsilon != 0 and tMax == 0 and self.i < 1:
+        elif epsilon != 0 and tMax == 0:
             t = epsilon * torch.ones(x.size(0)).to("cuda:0")
-        elif tMax > 0 and epsilon == 0 and self.i < 1:
+        elif tMax > 0 and epsilon == 0:
             # tMax sets the maximum value of t in the interval [-tMax, tMax]
             # in which the number of steps agrees with the batch size:
             t = torch.linspace(-tMax, tMax, x.size(0)).to("cuda:0")

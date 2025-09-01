@@ -11,9 +11,9 @@ import matplotlib.pyplot as plt
 from parse_config import ConfigParser
 
 
-def main(config):
+def main(config, output_dir='images'):
     logger = config.get_logger('test')
-
+    out_dir = output_dir
     # setup data_loader instances
     data_loader = getattr(module_data, config['data_loader']['type'])(
         config['data_loader']['args']['data_dir'],
@@ -25,7 +25,7 @@ def main(config):
         tf_range=config['data_loader']['args']['tf_range']
     )
 
-    epsilon = 0
+    epsilon = 0.0
 
     data_size = np.prod(data_loader.dataset.images.data[0].shape)
 
@@ -72,7 +72,7 @@ def main(config):
             combined = torch.cat((data, target), 1)
             #####################################
 
-            output, exptG, t = model(combined, epsilon=epsilon, zTest=True)
+            output, exptG, t = model(combined, epsilon=epsilon, zTest=True, out_path=out_dir)
             print("t.shape:", t.shape)
             # Add output to all_output tensor:
             all_output = torch.cat((all_output, output), 0)
@@ -90,8 +90,8 @@ def main(config):
             loss = loss_fn(output, target, data, exptG, combined, config, model)
             batch_size = data.shape[0]
             total_loss += loss.item() * batch_size
-            for i, metric in enumerate(metric_fns):
-                total_metrics[i] += metric(output, target) * batch_size
+            # for i, metric in enumerate(metric_fns):
+            #     total_metrics[i] += metric(output, target) * batch_size
 
     #### EPSILON TEST ####
     # If epsilon is non-zero, then we need to test the model with epsilon
@@ -132,10 +132,10 @@ def main(config):
         # plot both G_rot and G_est:
         # import matplotlib.pyplot as plt
         plt.imshow(G_rot.detach().cpu().numpy(), cmap="seismic", vmin=-1, vmax=1)
-        plt.savefig("images/G_rot.png")
+        plt.savefig(f"{out_dir}/G_rot.png")
         plt.close()
         plt.imshow(G_est, cmap="seismic", vmin=-1, vmax=1)
-        plt.savefig("images/G_est.png")
+        plt.savefig(f"{out_dir}/G_est.png")
         plt.close()
 
         idd = 1
@@ -174,7 +174,7 @@ def main(config):
             for ax in axs.flat:
                 ax.label_outer()
 
-            plt.savefig(f"images/sample_T_{T:.2f}.png")
+            plt.savefig(f"{out_dir}/sample_T_{T:.2f}.png")
             plt.close()
 
         
@@ -209,6 +209,8 @@ if __name__ == '__main__':
                       help='path to latest checkpoint (default: None)')
     args.add_argument('-d', '--device', default=None, type=str,
                       help='indices of GPUs to enable (default: all)')
+    args.add_argument('--output_dir', default='images', type=str, help='Directory to save images')
 
+    parsed_args = args.parse_args()
     config = ConfigParser.from_args(args)
-    main(config)
+    main(config, output_dir=parsed_args.output_dir)
