@@ -1,4 +1,4 @@
-name: fourier_clone_backup
+name: cartan
 channels:
   - pytorch
   - conda-forge
@@ -276,4 +276,3 @@ dependencies:
     - werkzeug==2.2.2
     - widgetsnbextension==3.5.1
     - zipp==3.8.1
-prefix: /home/alex/anaconda3/envs/fourier_clone_backup
