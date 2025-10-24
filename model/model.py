@@ -77,7 +77,15 @@ class Decoder(BaseModel):
 
 
 class EncoderLieTDecoder(BaseModel):
-    def __init__(self, input_size, hidden_sizes, t_hidden_sizes, latent_dim, non_affine=False, channels=1, dropout=False, conv=False):
+    def __init__(self, 
+                 input_size, 
+                 hidden_sizes, 
+                 t_hidden_sizes, 
+                 latent_dim, 
+                 non_affine=False, 
+                 channels=1, 
+                 dropout=False, 
+                 conv=False):
         super().__init__()
         self.latent_dim = latent_dim
         self.c = channels
@@ -90,12 +98,16 @@ class EncoderLieTDecoder(BaseModel):
             self.a = nn.Parameter(torch.randn(12), requires_grad=True)
         else:    
             self.a = nn.Parameter(torch.randn(6), requires_grad=True)
-            # Make a [0,0,-1,0,1,0] vector:
-            # self.a.data = torch.tensor([1,1,-1,0,1,0]).float().to("cuda:0")
         print("a_init = ", self.a / torch.norm(self.a, p=2))
 
-        self.D = self.generate_basis(d_squared=self.latent_dim, non_affine=non_affine).clone().detach().to("cuda:0")
-        self.D_big = self.generate_basis(d_squared=input_size, non_affine=non_affine).clone().detach().to("cuda:0")
+        self.register_buffer(
+            'D',
+            self.generate_basis(d_squared=self.latent_dim, non_affine=non_affine).clone().detach()
+        )
+        self.register_buffer(
+            'D_big',
+            self.generate_basis(d_squared=input_size, non_affine=non_affine).clone().detach()
+        )
 
         if isinstance(dropout, bool):
             dropout_rate = 0.5 if dropout else 0.0
@@ -112,11 +124,13 @@ class EncoderLieTDecoder(BaseModel):
 
     def forward(self, x, epsilon=0, tMax=0, zTest=False, out_path=None):
         self.out_path = out_path
+        device = self.a.device
         # Normalize a vector by dividing by its norm:
         a_norm = torch.norm(self.a, p=2)
         a_normed = self.a / a_norm
 
-        self.G = torch.einsum('i, imn -> mn', a_normed, self.D)
+        D = self.D.to(device)
+        self.G = torch.einsum('i, imn -> mn', a_normed, D)
 
         x, y = torch.split(x, 1, dim=1)
 
@@ -135,11 +149,11 @@ class EncoderLieTDecoder(BaseModel):
             t = t.squeeze()
 
         elif epsilon != 0 and tMax == 0:
-            t = epsilon * torch.ones(x.size(0)).to("cuda:0")
+            t = epsilon * torch.ones(x.size(0), device=device)
         elif tMax > 0 and epsilon == 0:
             # tMax sets the maximum value of t in the interval [-tMax, tMax]
             # in which the number of steps agrees with the batch size:
-            t = torch.linspace(-tMax, tMax, x.size(0)).to("cuda:0")
+            t = torch.linspace(-tMax, tMax, x.size(0), device=device)
 
 
         z = self.encoder(x)
@@ -163,7 +177,7 @@ class EncoderLieTDecoder(BaseModel):
         # field form of the generator G) on the gaussian blob. 
 
         if zTest and self.i < 1:
-            ground_truth_a = torch.tensor([0, 0, -1,0,1,0], device="cuda:0", dtype=torch.float32)
+            ground_truth_a = torch.tensor([0, 0, -1,0,1,0], device=device, dtype=torch.float32)
         
             # Calculate G loss
             g_loss = self.calculate_g_loss(ground_truth_a)
@@ -298,7 +312,8 @@ class EncoderLieTDecoder(BaseModel):
         Handles both affine (`a` length 6) and non-affine (`a` length 12) cases.
         """
         # Normalize ground truth coefficients
-        ground_truth_a = torch.tensor(ground_truth_a, device="cuda:0", dtype=torch.float32)
+        device = self.a.device
+        ground_truth_a = torch.tensor(ground_truth_a, device=device, dtype=torch.float32)
         gt_norm = torch.norm(ground_truth_a, p=2)
         ground_truth_a = ground_truth_a / gt_norm
         a_normed = self.a / torch.norm(self.a, p=2)
@@ -446,10 +461,12 @@ class EncoderLieTDecoder(BaseModel):
 
     def taylor_loss(self, combined_data, order=1):
         # Normalize a vector by dividing by its norm:
+        device = self.a.device
         a_norm = torch.norm(self.a, p=2)
         a_normed = self.a / a_norm
 
-        self.G_big = torch.einsum('i, imn -> mn', a_normed, self.D_big)
+        D_big = self.D_big.to(device)
+        self.G_big = torch.einsum('i, imn -> mn', a_normed, D_big)
 
         x, y = torch.split(combined_data, 1, dim=1)
 
@@ -472,10 +489,10 @@ class EncoderLieTDecoder(BaseModel):
 
         if order == 1:    
             # First order Taylor approximation:
-            exptG_order = torch.eye(self.D_big.shape[1]).to("cuda:0") + tG
+            exptG_order = torch.eye(D_big.shape[1], device=device) + tG
         elif order == 2:
             # Second order Taylor approximation:
-            exptG_order = torch.eye(self.D_big.shape[1]).to("cuda:0") + tG + 0.5*torch.einsum('imn, ink -> imk', tG, tG)
+            exptG_order = torch.eye(D_big.shape[1], device=device) + tG + 0.5*torch.einsum('imn, ink -> imk', tG, tG)
         else:
             raise ValueError("Order must be 1 or 2.")
 
@@ -504,16 +521,18 @@ class EncoderLieTDecoder(BaseModel):
             axs[1, j].axis('off')
 
         # Generate quasi-equally spaced t values between -1 and 1, including 0
-        t_values = torch.linspace(-1, 1, 11, device='cuda:0')
+        device = self.a.device
+        t_values = torch.linspace(-1, 1, 11, device=device)
 
         # Create sample patches
         z_temp1 = self.create_gaussian_line_segment(stddev=0.2)
         z_temp2 = self.create_gaussian_blob(stddev=0.5)
 
         # Define matrices G_test and G_model
-        a_test = ground_truth_a.float().to("cuda:0")#torch.tensor([0,0,0,1, 0, -1,0,0,0, 0, 2, 0]).float().to("cuda:0")
-        G_test = torch.einsum('i, imn -> mn', a_test / torch.norm(a_test, p=2), self.D)
-        G_model = torch.einsum('i, imn -> mn', self.a / torch.norm(self.a, p=2), self.D)
+        a_test = ground_truth_a.float().to(device)  # torch.tensor([...]) ...
+        D = self.D.to(device)
+        G_test = torch.einsum('i, imn -> mn', a_test / torch.norm(a_test, p=2), D)
+        G_model = torch.einsum('i, imn -> mn', self.a / torch.norm(self.a, p=2), D)
 
         # Loop to plot transformations for line and blob
         for j in range(11):
@@ -561,8 +580,9 @@ class EncoderLieTDecoder(BaseModel):
     def create_gaussian_blob(self, stddev=0.5):
         # Create a 2D grid of coordinates
         latent_dim_sqrt = int(np.sqrt(self.latent_dim))
-        x = torch.linspace(-1, 1, latent_dim_sqrt)
-        y = torch.linspace(-1, 1, latent_dim_sqrt)
+        device = self.a.device
+        x = torch.linspace(-1, 1, latent_dim_sqrt, device=device)
+        y = torch.linspace(-1, 1, latent_dim_sqrt, device=device)
         X, Y = torch.meshgrid(x, y)
 
         # Calculate the 2D Gaussian function
@@ -571,14 +591,15 @@ class EncoderLieTDecoder(BaseModel):
         gaussian_blob= torch.rot90(gaussian_blob,k=1)
 
         # Flatten the Gaussian blob to match the latent vector dimensions
-        gaussian_blob = gaussian_blob.reshape(1, self.latent_dim).to("cuda:0")
+        gaussian_blob = gaussian_blob.reshape(1, self.latent_dim)
         return gaussian_blob
     
     def create_gaussian_line_segment(self, stddev=0.5):
         # Create a 2D grid of coordinates
         latent_dim_sqrt = int(np.sqrt(self.latent_dim))
-        x = torch.linspace(-1, 1, latent_dim_sqrt)
-        y = torch.linspace(-1, 1, latent_dim_sqrt)
+        device = self.a.device
+        x = torch.linspace(-1, 1, latent_dim_sqrt, device=device)
+        y = torch.linspace(-1, 1, latent_dim_sqrt, device=device)
         X, Y = torch.meshgrid(x, y)
 
         # Calculate the 2D Gaussian line
@@ -589,10 +610,10 @@ class EncoderLieTDecoder(BaseModel):
         gaussian_blob[:, -1] = 0
 
         # Flatten the Gaussian blob to match the latent vector dimensions
-        gaussian_blob = gaussian_blob.reshape(1, self.latent_dim).to("cuda:0")
+        gaussian_blob = gaussian_blob.reshape(1, self.latent_dim)
         return gaussian_blob
-    
-    def create_L_shape(length=5, width=1):
+
+    def create_L_shape(self, length=5, width=1):
         """
         Create an L-shaped figure.
         
@@ -603,7 +624,8 @@ class EncoderLieTDecoder(BaseModel):
         Returns:
         A tensor representing the L-shaped figure.
         """
-        L_shape = torch.zeros((1, length, length)).to("cuda:0")  # Create a blank square tensor
+        device = self.a.device
+        L_shape = torch.zeros((1, length, length), device=device)  # Create a blank square tensor
         L_shape[0, :length, :width] = 1  # Vertical arm
         L_shape[0, :width, :length] = 1  # Horizontal arm
         return L_shape
@@ -630,8 +652,14 @@ class EncoderLieMulTDecoder(BaseModel):
         print("a_init = ", self.a / torch.norm(self.a, p=2))
         print("a2_init = ", self.a2 / torch.norm(self.a2, p=2))
 
-        self.D = self.generate_basis(d_squared=self.latent_dim, non_affine=non_affine).clone().detach().to("cuda:0")
-        self.D_big = self.generate_basis(d_squared=input_size, non_affine=non_affine).clone().detach().to("cuda:0")
+        self.register_buffer(
+            'D',
+            self.generate_basis(d_squared=self.latent_dim, non_affine=non_affine).clone().detach()
+        )
+        self.register_buffer(
+            'D_big',
+            self.generate_basis(d_squared=input_size, non_affine=non_affine).clone().detach()
+        )
 
         if isinstance(dropout, bool):
             dropout_rate = 0.5 if dropout else 0.0
@@ -648,14 +676,16 @@ class EncoderLieMulTDecoder(BaseModel):
 
     def forward(self, x, epsilon=0, tMax=0, zTest=False):
         # Normalize a vector by dividing by its norm:
+        device = self.a.device
         a_norm = torch.norm(self.a, p=2)
         a_normed = self.a / a_norm
 
         a2_norm = torch.norm(self.a2, p=2)
         a2_normed = self.a2 / a2_norm
 
-        self.G = torch.einsum('i, imn -> mn', a_normed, self.D)
-        self.G2 = torch.einsum('i, imn -> mn', a2_normed, self.D)
+        D = self.D.to(device)
+        self.G = torch.einsum('i, imn -> mn', a_normed, D)
+        self.G2 = torch.einsum('i, imn -> mn', a2_normed, D)
         
         commutator = torch.matmul(self.G, self.G2) - torch.matmul(self.G2, self.G)
 
@@ -676,11 +706,11 @@ class EncoderLieMulTDecoder(BaseModel):
             t, t2, t12 = out_t[:,0], out_t[:,1], out_t[:,2]
 
         elif epsilon != 0 and tMax == 0:
-            t = epsilon * torch.ones(x.size(0)).to("cuda:0")
+            t = epsilon * torch.ones(x.size(0), device=device)
         elif tMax > 0 and epsilon == 0:
             # tMax sets the maximum value of t in the interval [-tMax, tMax]
             # in which the number of steps agrees with the batch size:
-            t = torch.linspace(-tMax, tMax, x.size(0)).to("cuda:0")
+            t = torch.linspace(-tMax, tMax, x.size(0), device=device)
 
         exponent = torch.einsum('i, mn -> imn', t, self.G)
         exponent2 = torch.einsum('i, mn -> imn', t2, self.G2)
@@ -822,15 +852,16 @@ class EncoderLieMulTDecoder(BaseModel):
     
     def taylor_loss(self, combined_data, order=1):  
         # Normalize a vector by dividing by its norm:
+        device = self.a.device
         a_norm = torch.norm(self.a, p=2)
         a_normed = self.a / a_norm
 
         a2_norm = torch.norm(self.a2, p=2)
         a2_normed = self.a2 / a2_norm
-        
 
-        self.G1 = torch.einsum('i, imn -> mn', a_normed, self.D_big)
-        self.G2 = torch.einsum('i, imn -> mn', a2_normed, self.D_big)
+        D_big = self.D_big.to(device)
+        self.G1 = torch.einsum('i, imn -> mn', a_normed, D_big)
+        self.G2 = torch.einsum('i, imn -> mn', a2_normed, D_big)
         commutator = torch.matmul(self.G1, self.G2) - torch.matmul(self.G2, self.G1)
 
         x, y = torch.split(combined_data, 1, dim=1)
@@ -855,7 +886,7 @@ class EncoderLieMulTDecoder(BaseModel):
         # tG = torch.einsum('i, mn -> imn', t_no_grad, self.G)
         # First-order Taylor approximation
         taylor_approx = (
-            torch.eye(self.D_big.shape[1]).to("cuda:0") + 
+            torch.eye(D_big.shape[1], device=device) + 
             torch.einsum('i, mn -> imn', t_no_grad, self.G1) + 
             torch.einsum('i, mn -> imn', t2_no_grad, self.G2) + 
             torch.einsum('i, mn -> imn', t12_no_grad, commutator)
@@ -887,23 +918,25 @@ class EncoderLieMulTDecoder(BaseModel):
             axs[1, j].axis('off')
 
         # Generate quasi-equally spaced t values between -1 and 1, including 0
-        t_values = torch.linspace(-0.5, 0.5, 11, device='cuda:0')
+        device = self.a.device
+        t_values = torch.linspace(-0.5, 0.5, 11, device=device)
 
         # Create a Gaussian blob in the center for the sample patch
         z_temp1 = self.create_gaussian_line_segment(stddev=0.2)
         z_temp2 = self.create_gaussian_blob(stddev=0.5)
 
-        a_test = torch.tensor([0,0,-1,0,1,0]).float().to("cuda:0")
+        a_test = torch.tensor([0,0,-1,0,1,0], device=device, dtype=torch.float32)
         a_test_norm = torch.norm(a_test, p=2)
         a_test_normed = a_test / a_test_norm
 
-        G_test = torch.einsum('i, imn -> mn', a_test_normed, self.D)
+        D = self.D.to(device)
+        G_test = torch.einsum('i, imn -> mn', a_test_normed, D)
 
         a_model = self.a
         a_model_norm = torch.norm(a_model, p=2)
         a_model_normed = a_model / a_model_norm
 
-        G_model = torch.einsum('i, imn -> mn', a_model_normed, self.D)
+        G_model = torch.einsum('i, imn -> mn', a_model_normed, D)
 
         # Loop to plot the transformed Gaussian blob for each t value
         for j in range(11):  # Loop over all 11 t values
@@ -969,8 +1002,9 @@ class EncoderLieMulTDecoder(BaseModel):
     def create_gaussian_blob(self, stddev=0.5):
         # Create a 2D grid of coordinates
         latent_dim_sqrt = int(np.sqrt(self.latent_dim))
-        x = torch.linspace(-1, 1, latent_dim_sqrt)
-        y = torch.linspace(-1, 1, latent_dim_sqrt)
+        device = self.a.device
+        x = torch.linspace(-1, 1, latent_dim_sqrt, device=device)
+        y = torch.linspace(-1, 1, latent_dim_sqrt, device=device)
         X, Y = torch.meshgrid(x, y)
 
         # Calculate the 2D Gaussian function
@@ -979,14 +1013,15 @@ class EncoderLieMulTDecoder(BaseModel):
         gaussian_blob= torch.rot90(gaussian_blob,k=1)
 
         # Flatten the Gaussian blob to match the latent vector dimensions
-        gaussian_blob = gaussian_blob.reshape(1, self.latent_dim).to("cuda:0")
+        gaussian_blob = gaussian_blob.reshape(1, self.latent_dim)
         return gaussian_blob
-    
+
     def create_gaussian_line_segment(self, stddev=0.5):
         # Create a 2D grid of coordinates
         latent_dim_sqrt = int(np.sqrt(self.latent_dim))
-        x = torch.linspace(-1, 1, latent_dim_sqrt)
-        y = torch.linspace(-1, 1, latent_dim_sqrt)
+        device = self.a.device
+        x = torch.linspace(-1, 1, latent_dim_sqrt, device=device)
+        y = torch.linspace(-1, 1, latent_dim_sqrt, device=device)
         X, Y = torch.meshgrid(x, y)
 
         # Calculate the 2D Gaussian line
@@ -997,10 +1032,10 @@ class EncoderLieMulTDecoder(BaseModel):
         gaussian_blob[:, -1] = 0
 
         # Flatten the Gaussian blob to match the latent vector dimensions
-        gaussian_blob = gaussian_blob.reshape(1, self.latent_dim).to("cuda:0")
+        gaussian_blob = gaussian_blob.reshape(1, self.latent_dim)
         return gaussian_blob
-    
-    def create_L_shape(length=5, width=1):
+
+    def create_L_shape(self, length=5, width=1):
         """
         Create an L-shaped figure.
         
@@ -1011,7 +1046,8 @@ class EncoderLieMulTDecoder(BaseModel):
         Returns:
         A tensor representing the L-shaped figure.
         """
-        L_shape = torch.zeros((1, length, length)).to("cuda:0")  # Create a blank square tensor
+        device = self.a.device
+        L_shape = torch.zeros((1, length, length), device=device)  # Create a blank square tensor
         L_shape[0, :length, :width] = 1  # Vertical arm
         L_shape[0, :width, :length] = 1  # Horizontal arm
         return L_shape
@@ -1046,6 +1082,7 @@ class EncoderLieMulTVecDecoder(BaseModel):
 
     def forward(self, x, epsilon=0, tMax=0, zTest=False):
         # Normalize G
+        device = self.a.device
         a_norm = torch.norm(self.a, p="fro")
         a_normalized = self.a / a_norm
 
@@ -1060,9 +1097,9 @@ class EncoderLieMulTVecDecoder(BaseModel):
             out_t = self.t(torch.cat((x, y), dim=1))
             t = out_t.squeeze(1)
         elif epsilon != 0 and tMax == 0:
-            t = epsilon * torch.ones(x.size(0)).to("cuda:0")
+            t = epsilon * torch.ones(x.size(0), device=device)
         elif tMax > 0 and epsilon == 0:
-            t = torch.linspace(-tMax, tMax, x.size(0)).to("cuda:0")
+            t = torch.linspace(-tMax, tMax, x.size(0), device=device)
 
         # Matrix exponential for transformation
         exponent = torch.einsum("i,mn->imn", t, a_normalized)
@@ -1119,4 +1156,3 @@ class EncoderLieMulTVecDecoder(BaseModel):
         plt.grid(True)
         plt.tight_layout()
         plt.show()
-

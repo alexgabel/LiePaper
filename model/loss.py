@@ -5,11 +5,14 @@ import torch
 def nll_loss(output, target):
     return F.nll_loss(output, target)
 
+
 def mse_loss(output, target):
     return F.mse_loss(output, target)
 
+
 def pixel_mse_loss(output, target):
     return F.mse_loss(output, target)
+
 
 def loss_all(output, target, data, exptG, combined, config, model):
     # Get number of channels from config
@@ -34,6 +37,7 @@ def loss_all(output, target, data, exptG, combined, config, model):
         config['lambda_a'] * mse_loss(*model.taylor_loss(combined))
     )
     return loss
+
 
 def loss_multi(output, target, data, exptG, combined, config, model):
     # Get number of channels from config

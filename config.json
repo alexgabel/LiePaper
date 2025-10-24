@@ -1,5 +1,5 @@
 {
-    "name": "SuperGalaxy_lowlasso_rot",
+    "name": "SuperGalaxy_rot",
     "n_gpu": 1,
 
     "arch": {
@@ -17,7 +17,7 @@
                 128,
                 64
             ],
-            "latent_dim": 81,
+            "latent_dim": 25,
             "channels": 1,
             "non_affine": false,
             "dropout": false
@@ -47,7 +47,7 @@
     "lambda_recon": 1.0,
     "lambda_z": 0.001,
     "lambda_lasso": 0.1,
-    "lambda_a": 1000.0,
+    "lambda_a": 1.0,
     "metrics": [
         "mse_loss",
         "generator_mse",
