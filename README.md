@@ -1,8 +1,10 @@
-# Cartan: Neural Symmetry Detector with Latent Lie Algebras
+# Cartan: Neural Symmetry Detector with Lie Algebras
 
 Cartan is a framework for unsupervised neural symmetry detection using PyTorch. It leverages an encoder–decoder style architecture to (1) determine a symmetry generator and (2) estimate transformation magnitude distributions in order to find geometric relationships in data. This is done by feeding the model pairs of data samples, between which one expects there to be a relationship (a linear mapping $e^{t\mathbf{G}}$) that is shared amongst samples through a fixed generator $\mathbf{G}$ but is sample-specific in magnitude $t$ (e.g., rotation vs. the specific angle of rotation). The exponential map is performed in the latent space and linked to estimates of the pixel-level transformation by introducing an $\alpha$-matching term in the loss. 
 
 The task, recovering both the generator and the distribution of magnitudes for arbitrary transformations, applied to MNIST and the [Galaxy10 DECaLS](https://astronn.readthedocs.io/en/latest/galaxy10.html) datasets is refered to as SyMNIST and GalaxSym respectively. When the pairs stem from seperate root images, the task gets the 'Super' prefix, yielding SuperSyMNIST and SuperGalaxSym (e.g., two different handwritten 3s, but one of them is rotated by an arbitrary amount). It supports MNIST or Galaxy10 grayscale images out-of-the-box.
+
+See our paper for more details: https://www.nature.com/articles/s41598-025-17098-8.
 
 <p align="center">
   <picture>
@@ -11,13 +13,11 @@ The task, recovering both the generator and the distribution of magnitudes for a
   </picture>
 </p>
 
-See our paper for more details: https://www.nature.com/articles/s41598-025-17098-8
-
 **Gabel, A.**, Quax, R. & Gavves, E., "Type-II Neural Symmetry Detection with Lie Theory," *Scientific Reports*, **15**, 33500 (2025). https://doi.org/10.1038/s41598-025-17098-8
 
 ## Overview
 ### Model
-- `EncoderLieTDecoder` is the primary architecture: an encoder produces a latent pair, a symmetry generator is parameterized using a basis `D`, and a t-network predicts magnitudes of the transformation. The magnitudes are multiplied by the normalized generator and exponentiated before decoding back to the image space. The figure above highlights this pipeline.
+- `EncoderLieTDecoder` is the primary architecture: an encoder produces a latent pair, a symmetry generator is parameterized using a basis `D`, and a t-network predicts magnitudes of the transformation. The magnitudes are multiplied by the normalized generator and exponentiated before decoding back to the image space. The figure above illustrates this pipeline.
 - Latent representations can be patch-based (default) or vector-based via `EncoderLieMulTVecDecoder`—choose the variant by swapping the `arch` section in your config.
 - Cartan builds on Lie-group symmetry learning ideas introduced in [1] and the symmetry-discovery framework of [2]. A first prototype of this approach was presented in [3].
 
