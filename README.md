@@ -68,4 +68,5 @@ You can cite our work using the following snippet:
 [3] **A. Gabel**, V. Klein, R. Valperga, J. S. W. Lamb, K. Webster, R. Quax, and E. Gavves, “Learning Lie Group Symmetry Transformations with Neural Networks,” *TAG-ML Workshop*, PMLR 221:50–59, 2023. https://proceedings.mlr.press/v221/gabel23a.html
 
 ## Acknowledgments
-- Parts of the training loop, config parsing, logging utilities, and data-loader scaffolding are adapted from the PyTorch Template by Victor Huang: https://github.com/victoresque/pytorch-template/tree/master. Those portions retain the original MIT license; see `LICENSE` for details.
+- My gratitude goes out to Riccardo Valperga, Victoria Klein, Max van Spengler, Samuele Papa, and David Knigge for helping out with this project.
+- Training/testing loop logic, config parsing, logging utilities, and data-loader scaffolding are adapted from the PyTorch Template by Victor Huang: https://github.com/victoresque/pytorch-template/tree/master. Those portions retain the original MIT license; see `LICENSE` for details.
