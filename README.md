@@ -4,7 +4,7 @@ Cartan is a framework for unsupervised neural symmetry detection using PyTorch. 
 
 The task, recovering both the generator and the distribution of magnitudes for arbitrary transformations, applied to MNIST and the [Galaxy10 DECaLS](https://astronn.readthedocs.io/en/latest/galaxy10.html) datasets is refered to as SyMNIST and GalaxSym respectively. When the pairs stem from seperate root images, the task gets the 'Super' prefix, yielding SuperSyMNIST and SuperGalaxSym (e.g., two different handwritten 3s, but one of them is rotated by an arbitrary amount). It supports MNIST or Galaxy10 grayscale images out-of-the-box.
 
-This codebase accompanies the following publication:
+This codebase accompanies the following publication:<br>
 **Gabel, A.**, Quax, R. & Gavves, E., "Type-II Neural Symmetry Detection with Lie Theory," *Scientific Reports*, **15**, 33500 (2025). https://doi.org/10.1038/s41598-025-17098-8
 
 <p align="center">
