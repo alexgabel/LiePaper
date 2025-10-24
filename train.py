@@ -77,7 +77,7 @@ def main(config):
 
 
 if __name__ == '__main__':
-    args = argparse.ArgumentParser(description='PyTorch')
+    args = argparse.ArgumentParser(description='Cartan Trainer')
     args.add_argument('-c', '--config', default="config.json", type=str,
                       help='config file path (default: None)')
     args.add_argument('-r', '--resume', default=None, type=str,

@@ -319,7 +319,7 @@ def generate_analysis_plots(data, target, output, model, all_t, aligned_t_values
 
 
 if __name__ == '__main__':
-    args = argparse.ArgumentParser(description='PyTorch')
+    args = argparse.ArgumentParser(description='Cartan Evaluation')
     args.add_argument('-c', '--config', default=None, type=str, help='Config file path')
     args.add_argument('-r', '--resume', default=None, type=str, help='Path to checkpoint')
     args.add_argument('-d', '--device', default=None, type=str, help='GPU indices to enable')
