@@ -4,6 +4,13 @@ Cartan learns and applies Lie-symmetric transformations to images, pairing an en
 
 See our paper for more details: https://www.nature.com/articles/s41598-025-17098-8
 
+<p align="center">
+  <picture>
+    <source srcset="figures/arch.webp" type="image/webp">
+    <img src="docs/arch.png" alt="Cartan model architecture" width="720">
+  </picture>
+</p>
+
 Quick Start
 - Install dependencies: `pip install -r requirements.txt`
 - Prepare data under `data/` (e.g., MNIST auto-downloaded; Galaxy10 path in config)
