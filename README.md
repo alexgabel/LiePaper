@@ -4,7 +4,7 @@ Cartan is a framework for unsupervised neural symmetry detection using PyTorch. 
 
 See our paper for more details: https://www.nature.com/articles/s41598-025-17098-8
 
-Gabel, A., Quax, R. and Gavves, E., "Type-II Neural Symmetry Detection with Lie Theory," *Scientific Reports*, **15**, 33500 (2025). https://doi.org/10.1038/s41598-025-17098-8
+**Gabel, A.**, Quax, R. & Gavves, E., "Type-II Neural Symmetry Detection with Lie Theory," *Scientific Reports*, **15**, 33500 (2025). https://doi.org/10.1038/s41598-025-17098-8
 
 <p align="center">
   <picture>
@@ -13,18 +13,19 @@ Gabel, A., Quax, R. and Gavves, E., "Type-II Neural Symmetry Detection with Lie 
   </picture>
 </p>
 
-## Model Overview
+## Overview
+### Model
 - `EncoderLieTDecoder` is the primary architecture: an encoder produces a latent pair, a symmetry generator is parameterized using a basis `D`, and a t-network predicts magnitudes of the transformation. The magnitudes are multiplied by the normalized generator and exponentiated before decoding back to the image space. The figure above highlights this pipeline.
 - Latent representations can be patch-based (default) or vector-based via `EncoderLieMulTVecDecoder`—choose the variant by swapping the `arch` section in your config.
 - Cartan builds on Lie-group symmetry learning ideas introduced in [1] and the symmetry-discovery framework of [2]. A first prototype of this approach was presented in [3].
 
-## Quick Start
+### Quick Start
 - Install dependencies: `pip install -r requirements.txt`
 - Prepare data under `data/` (MNIST auto-downloads; Galaxy10 paths provided in configs)
 - Train: `python train.py -c config.json`
 - Outputs (checkpoints, logs, TensorBoard traces) are written to `saved/`.
 
-## Configuration
+### Configuration
 - Edit `config.json` (or pass CLI overrides) to set architecture, data loader, and regularisation weights.
 - Handy CLI overrides:
   - Learning rate: `--lr 1e-3`
@@ -33,7 +34,7 @@ Gabel, A., Quax, R. and Gavves, E., "Type-II Neural Symmetry Detection with Lie 
   - Run name: `--n cartan_run`
 - Switch to latent-vector mode by pointing `arch.type` to `EncoderLieMulTVecDecoder` and using `config_vec.json` as a template.
 
-## Experiment Automation & Evaluation Scripts
+### Experiment Automation & Evaluation Scripts
 - `train.sh` – quick sweep runner for a single set of hyperparameters.
 - `test.py` – minimal baseline metric evaluation on held-out data.
 - `test_tze.py`, `test_tze_plots.py` – richer diagnostics that log generator histograms, transformation grids, etc.
@@ -43,7 +44,7 @@ Gabel, A., Quax, R. and Gavves, E., "Type-II Neural Symmetry Detection with Lie 
 - `sct.ipynb` – demonstrates special conformal transforms on MNIST, useful for stress-testing non-affine behaviour.
 - `time_complexity.py` – benchmarks different matrix-exponential routines (`torch.matrix_exp`, truncated series, custom approximations).
 
-## Cite
+### Cite
 You can cite our work using the following snippet:
 ```
 @article{Gabel2025,
@@ -64,7 +65,7 @@ You can cite our work using the following snippet:
 
 [2] N. Dehmamy, R. Walters, Y. Liu, D. Wang, and R. Yu, “Automatic Symmetry Discovery with Lie Algebra Convolutional Networks,” *Advances in Neural Information Processing Systems*, **34**, pp. 2503–2515, 2021. https://proceedings.neurips.cc/paper/2021/file/148148d62be67e0916a833931bd32b26-Paper.pdf
 
-[3] A. Gabel, V. Klein, R. Valperga, J. S. W. Lamb, K. Webster, R. Quax, and E. Gavves, “Learning Lie Group Symmetry Transformations with Neural Networks,” *TAG-ML Workshop*, PMLR 221:50–59, 2023. https://proceedings.mlr.press/v221/gabel23a.html
+[3] **A. Gabel**, V. Klein, R. Valperga, J. S. W. Lamb, K. Webster, R. Quax, and E. Gavves, “Learning Lie Group Symmetry Transformations with Neural Networks,” *TAG-ML Workshop*, PMLR 221:50–59, 2023. https://proceedings.mlr.press/v221/gabel23a.html
 
 ## Acknowledgments
 - Parts of the training loop, config parsing, logging utilities, and data-loader scaffolding are adapted from the PyTorch Template by Victor Huang: https://github.com/victoresque/pytorch-template/tree/master. Those portions retain the original MIT license; see `LICENSE` for details.
