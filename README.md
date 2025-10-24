@@ -1,6 +1,8 @@
-# Cartan: Lie-Symmetric Image Translation
+# Cartan: Type-II Neural Symmetry Detection with Lie Theory
 
-Cartan learns and applies Lie-symmetric transformations to images, pairing an encoder–decoder with a learned generator and a small t-network to estimate transformation parameters. It supports MNIST- or Galaxy10-style grayscale inputs and logs training metrics to TensorBoard.
+Cartan learns and applies Lie-symmetric transformations to images, pairing an encoder–decoder with a learned generator and a small t-network to estimate transformation parameters. It supports MNIST- or Galaxy10-style grayscale inputs out of the box.
+
+See our paper for more details: https://www.nature.com/articles/s41598-025-17098-8
 
 Quick Start
 - Install dependencies: `pip install -r requirements.txt`
@@ -13,15 +15,8 @@ Configuration
 - Common CLI overrides:
   - Learning rate: `--lr 1e-3`
   - Batch size: `--bs 512`
-  - Latent dim: `--L 81`
-  - Run name: `--n MyRun`
-
-Notebook Demo
-- `notebooks/interview_walkthrough.ipynb` demonstrates a mini-batch run: pairing, forward pass, reconstructions, and a quick t-parameter histogram.
-
-Results Artifacts
-- Check `saved/` for checkpoints and logs.
-- Visuals for the notebook demo are under `notebooks/assets/`.
+  - Latent dim: `--L 25`
+  - Run name: `--n run_name`
 
 Acknowledgments
 - Parts of the training loop, config parsing, logging utilities, and data-loader scaffolding are adapted from the PyTorch Template by Victor Huang: https://github.com/victoresque/pytorch-template/tree/master

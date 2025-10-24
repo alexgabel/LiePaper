@@ -193,34 +193,25 @@ class SyMNIST(Dataset):
         # flat_images = self.images.view(batch_size, -1)
         # flat_targets = self.targets.view(batch_size, -1)   
 
-        # # Solve system and subtract idnetity matrix
-        # self.tG_est = None #TODO: Solve for tG_est
-        # # Imshpw the tG matrix red blue colormap, zero is white:
-        # plt.imshow(self.tG_est, cmap='RdBu', vmin=-1, vmax=1)
-        # plt.colorbar()
-        # plt.show()
-
         # unsqueeze to add a channel dimension
         self.images = self.images.unsqueeze(1)
         self.targets = self.targets.unsqueeze(1)
 
         # Visualize first few image pairs to debug transformations
-        num_vis = min(5, len(self.images))
-        fig, axs = plt.subplots(num_vis, 2, figsize=(6, num_vis * 2))
-        for i in range(num_vis):
-            axs[i, 0].imshow(self.images[i, 0].numpy(), cmap='gray')
-            axs[i, 0].set_title('Original')
-            axs[i, 0].axis('off')
+        # num_vis = min(5, len(self.images))
+        # fig, axs = plt.subplots(num_vis, 2, figsize=(6, num_vis * 2))
+        # for i in range(num_vis):
+        #     axs[i, 0].imshow(self.images[i, 0].numpy(), cmap='gray')
+        #     axs[i, 0].set_title('Original')
+        #     axs[i, 0].axis('off')
 
-            axs[i, 1].imshow(self.targets[i, 0].numpy(), cmap='gray')
-            axs[i, 1].set_title('Transformed')
-            axs[i, 1].axis('off')
-        plt.tight_layout()
-        os.makedirs("images", exist_ok=True)
-        plt.savefig("images/sample_visualization.png")
-        plt.close()
-
-
+        #     axs[i, 1].imshow(self.targets[i, 0].numpy(), cmap='gray')
+        #     axs[i, 1].set_title('Transformed')
+        #     axs[i, 1].axis('off')
+        # plt.tight_layout()
+        # os.makedirs("images", exist_ok=True)
+        # plt.savefig("images/sample_visualization.png")
+        # plt.close()
 
     def __len__(self):
         return len(self.images)
@@ -233,14 +224,11 @@ class SyMNIST(Dataset):
 
 def inv(image):
     # Assumes the center of the image is the origin (0,0)
-    # Get the dimensions of the image
     h, w = image.shape
-    # Initialize an array to hold the inverted image
     inv_image = torch.zeros(h, w)
     # Loop through the pixels of the image and evualate the inverse
     for i in range(h):
         for j in range(w):
-            # Get the pixel value
             x = image[i, j]
             # Get the location vector
             r = torch.tensor([i - h/2, j - w/2])
@@ -262,12 +250,12 @@ class SyMNISTDataLoader(BaseDataLoader):
             transforms.ToTensor(),
         ])
         post_transform = transforms.Compose([
-            # transforms.Normalize((0.1307,), (0.3081,))
             transforms.Normalize((0.47336,), (0.2393,))
         ])
         self.data_dir = data_dir
         self.dataset = SyMNIST(self.data_dir, tf_range, dataset='mnist', train=training, pre_transform=pre_transform, post_transform=post_transform)
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers)
+
 
 class UnnormalSyMNISTDataLoader(BaseDataLoader):
     """
@@ -344,7 +332,7 @@ class SuperSyMNIST(Dataset):
                 images = np.array(f['images'])  # [17736, 256, 256, 3]
                 labels = np.array(f['ans'], dtype=np.int64)
 
-            # Convert to grayscale by averaging over RGB channels
+            # Convert to grayscale
             images = images.mean(axis=-1)  # shape: [N, 256, 256]
 
             # Stratified train/test split
@@ -361,7 +349,6 @@ class SuperSyMNIST(Dataset):
 
             # Set the image size to 28x28
             self.n = 28
-            # Define transform pipeline to resize to 28x28
             transform_pipeline = transforms.Compose([
                 transforms.ToPILImage(),
                 transforms.CenterCrop(56),
@@ -374,9 +361,7 @@ class SuperSyMNIST(Dataset):
             # Store as list of (image_tensor, label)
             self.data = []
             for img, lbl in zip(selected_images, selected_labels):
-                # img: [256,256] float
-                img_tensor = torch.tensor(img, dtype=torch.float32) / 255.0  # [256,256], float32, [0,1]
-                # Store as (img_tensor, label); transform_pipeline will be applied later
+                img_tensor = torch.tensor(img, dtype=torch.float32) / 255.0
                 self.data.append((img_tensor, int(lbl)))
 
             # Build label_to_indices dict
@@ -424,10 +409,10 @@ class SuperSyMNIST(Dataset):
             if self.bx_max != 0 or self.by_max != 0:
                 target_trans = SCT(target_trans.squeeze(), b=[bx, by])
 
-            # Translate AFTER transformation (now target is still 256x256)
+            # Translate AFTER other transformations
             target_trans = transforms.functional.affine(target_trans.unsqueeze(0), angle=0, translate=(tx, ty), scale=1, shear=0).squeeze(0)
 
-            # Resize both original and transformed image to self.n using pipeline
+            # Resize
             if self.transform_pipeline:
                 image = self.transform_pipeline(image)
                 target_trans = self.transform_pipeline(target_trans)
@@ -441,20 +426,20 @@ class SuperSyMNIST(Dataset):
             self.targets[i] = target_trans
 
         # Visualize first few image pairs to debug transformations
-        num_vis = min(5, len(self.images))
-        fig, axs = plt.subplots(num_vis, 2, figsize=(6, num_vis * 2))
-        for i in range(num_vis):
-            axs[i, 0].imshow(self.images[i, 0].numpy(), cmap='gray')
-            axs[i, 0].set_title('Original')
-            axs[i, 0].axis('off')
+        # num_vis = min(5, len(self.images))
+        # fig, axs = plt.subplots(num_vis, 2, figsize=(6, num_vis * 2))
+        # for i in range(num_vis):
+        #     axs[i, 0].imshow(self.images[i, 0].numpy(), cmap='gray')
+        #     axs[i, 0].set_title('Original')
+        #     axs[i, 0].axis('off')
 
-            axs[i, 1].imshow(self.targets[i, 0].numpy(), cmap='gray')
-            axs[i, 1].set_title('Transformed')
-            axs[i, 1].axis('off')
-        plt.tight_layout()
-        os.makedirs("images", exist_ok=True)
-        plt.savefig("images/sample_visualization.png")
-        plt.close()
+        #     axs[i, 1].imshow(self.targets[i, 0].numpy(), cmap='gray')
+        #     axs[i, 1].set_title('Transformed')
+        #     axs[i, 1].axis('off')
+        # plt.tight_layout()
+        # os.makedirs("images", exist_ok=True)
+        # plt.savefig("images/sample_visualization.png")
+        # plt.close()
 
     def __len__(self):
         return len(self.images)
