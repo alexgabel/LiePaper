@@ -4,6 +4,8 @@ Cartan is a framework for unsupervised neural symmetry detection using PyTorch. 
 
 See our paper for more details: https://www.nature.com/articles/s41598-025-17098-8
 
+Gabel, A., Quax, R. and Gavves, E., "Type-II Neural Symmetry Detection with Lie Theory," *Scientific Reports*, **15**, 33500 (2025). https://doi.org/10.1038/s41598-025-17098-8
+
 <p align="center">
   <picture>
     <source srcset="docs/cartan_arch.webp" type="image/webp">
@@ -43,7 +45,7 @@ See our paper for more details: https://www.nature.com/articles/s41598-025-17098
 
 ## Cite
 You can cite our work using the following snippet:
-'''
+```
 @article{Gabel2025,
   author    = {Gabel, Alex and Quax, Rick and Gavves, Efstratios},
   title     = {Type-II Neural Symmetry Detection with Lie Theory},
@@ -55,15 +57,14 @@ You can cite our work using the following snippet:
   url       = {https://doi.org/10.1038/s41598-025-17098-8},
   issn      = {2045-2322}
 }
-'''
+```
 
 ## References
-[1] R. Rao and D. Ruderman, “Learning Lie Groups for Invariant Visual Perception,” *Advances in Neural Information Processing Systems*, vol. 11, 1998. https://proceedings.neurips.cc/paper_files/paper/1998/file/277281aada22045c03945dcb2ca6f2ec-Paper.pdf
+[1] R. Rao and D. Ruderman, “Learning Lie Groups for Invariant Visual Perception,” *Advances in Neural Information Processing Systems*, **11**, 1998. https://proceedings.neurips.cc/paper_files/paper/1998/file/277281aada22045c03945dcb2ca6f2ec-Paper.pdf
 
-[2] N. Dehmamy, R. Walters, Y. Liu, D. Wang, and R. Yu, “Automatic Symmetry Discovery with Lie Algebra Convolutional Networks,” *Advances in Neural Information Processing Systems*, vol. 34, pp. 2503–2515, 2021. https://proceedings.neurips.cc/paper/2021/file/148148d62be67e0916a833931bd32b26-Paper.pdf
+[2] N. Dehmamy, R. Walters, Y. Liu, D. Wang, and R. Yu, “Automatic Symmetry Discovery with Lie Algebra Convolutional Networks,” *Advances in Neural Information Processing Systems*, **34**, pp. 2503–2515, 2021. https://proceedings.neurips.cc/paper/2021/file/148148d62be67e0916a833931bd32b26-Paper.pdf
 
 [3] A. Gabel, V. Klein, R. Valperga, J. S. W. Lamb, K. Webster, R. Quax, and E. Gavves, “Learning Lie Group Symmetry Transformations with Neural Networks,” *TAG-ML Workshop*, PMLR 221:50–59, 2023. https://proceedings.mlr.press/v221/gabel23a.html
 
 ## Acknowledgments
-- Parts of the training loop, config parsing, logging utilities, and data-loader scaffolding are adapted from the PyTorch Template by Victor Huang: https://github.com/victoresque/pytorch-template/tree/master
-- Those portions retain the original MIT license; see `LICENSE` for details.
+- Parts of the training loop, config parsing, logging utilities, and data-loader scaffolding are adapted from the PyTorch Template by Victor Huang: https://github.com/victoresque/pytorch-template/tree/master. Those portions retain the original MIT license; see `LICENSE` for details.
