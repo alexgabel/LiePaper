@@ -1,6 +1,6 @@
 # Cartan: Neural Symmetry Detector with Latent Lie Algebras
 
-Cartan is a framework for Neural Symmetry Detection in PyTorch. It uses an encoder–decoder style architecture to (1) determine a symmetry generator and (2) estimate transformation magnitudes in order to find geometric relationships in data. It supports MNIST- or Galaxy10-style grayscale inputs out of the box.
+Cartan is a framework for Neural Symmetry Detection using PyTorch. It leverages an encoder–decoder style architecture to (1) determine a symmetry generator and (2) estimate transformation magnitude distributions in order to find geometric relationships in data. This is done by feeding the model pairs of data samples, between which one expects there to be a relationship (a linear mapping) that is shared amongst samples through a fixed generator $G$ but sample-specific in magnitude (e.g., rotation vs. the specific angle of rotation). It supports MNIST- or Galaxy10-style grayscale inputs out of the box.
 
 See our paper for more details: https://www.nature.com/articles/s41598-025-17098-8
 
